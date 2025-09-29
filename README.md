@@ -41,6 +41,7 @@ The bot will:
 - Track which users have been greeted and respect the configured cooldown (`TWITCH_GREETING_COOLDOWN`, default 300 seconds)
 - Randomly choose a message from `TWITCH_GREETING_MESSAGES` (pipe-delimited string); `{user}` is replaced with the viewer's name
 - Optionally skip greetings unless the channel is live (requires `TWITCH_CLIENT_ID` and `TWITCH_APP_ACCESS_TOKEN`)
+- Reply to chat mentions of `@jaimitadas_bot` (or replies to the bot) with an LLM-generated answer when configured
 
 Stop the bot with `Ctrl+C`.
 
@@ -48,6 +49,36 @@ Stop the bot with `Ctrl+C`.
 - Adjust the greetings by editing `TWITCH_GREETING_MESSAGES` in your `.env`.
 - Modify timing behaviour with `TWITCH_GREETING_COOLDOWN` and `TWITCH_LIVE_CHECK_INTERVAL`.
 - Use `TWITCH_BOT_LOG_LEVEL` (e.g. `DEBUG`) for more verbose logging during troubleshooting.
+- Tweak `persona.txt` (or point `TWITCH_PERSONA_FILE` to your own file) to define how the bot habla en el chat.
+
+## AI mention replies
+Set up the AI response feature if you want the bot to answer whenever someone mentions `@jaimitadas_bot` or replies to the bot in chat.
+
+When enabled, TuichiBot replies directly to the triggering message (Twitch threaded reply) instead of dropping a generic chat line.
+
+### Option 1: Groq (hosted, free tier available)
+1. Create an API key at https://console.groq.com/keys (the free tier is usually enough for casual usage).
+2. Add these values to your `.env`:
+   - `TWITCH_AI_PROVIDER=groq`
+   - `GROQ_API_KEY=your_api_key_here`
+   - (Optional) `GROQ_MODEL` to override the default `llama3-8b-8192`
+3. Start the bot. You should see a log line confirming `AI replies enabled using provider groq`.
+
+### Option 2: Ollama (local, zero cost)
+1. Install and start Ollama from https://ollama.com/.
+2. Pull a compatible chat model, for example `ollama pull phi3:mini`.
+3. Update `.env` (or rely on defaults):
+   - `TWITCH_AI_PROVIDER=ollama`
+   - `OLLAMA_URL=http://127.0.0.1:11434`
+   - `OLLAMA_MODEL=phi3:mini`
+4. Run the bot with Ollama running in the background.
+
+### Extra tuning
+- `TWITCH_MENTION_COOLDOWN` (seconds, default 30) controls how often the bot will answer the same viewer.
+- `TWITCH_GLOBAL_MENTION_COOLDOWN` (seconds, default 5) is a global throttle between AI replies.
+- `TWITCH_MENTION_MAX_CHARS` caps the length of the generated reply (default 350 characters).
+- `AI_REQUEST_TIMEOUT_MS` overrides the network timeout for the LLM call (falls back to 20000 ms).
+- `GROQ_MODELS` (comma-separated) or `OLLAMA_MODELS` lets you define fallback models; the bot automatically tries the next model if one hits its rate limit or errors.
 
 ## Notes
 - Ensure the bot account has followed the target channel so it can chat immediately when the stream is live.
