@@ -1,0 +1,24 @@
+﻿{
+  "name": "tuichi-bot",
+  "version": "1.0.0",
+  "description": "Node.js Twitch chat bot that greets viewers joining jaimevarecto when the channel is live.",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "keywords": [
+    "twitch",
+    "bot",
+    "chat"
+  ],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=16"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.2",
+    "node-fetch": "^2.7.0",
+    "tmi.js": "^1.8.5"
+  }
+}
