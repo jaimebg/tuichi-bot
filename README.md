@@ -1,95 +1,438 @@
-﻿# jaimitadas_bot
+﻿# TuichiBot (jaimitadas_bot)
 
-Node.js-based Twitch chat bot that greets viewers who join `jaimevarecto` while the channel is live. Greetings rotate through configurable messages and respect a per-user cooldown to avoid spamming chat.
+A sophisticated Node.js Twitch chat bot designed for the `jaimevarecto` channel. The bot provides intelligent viewer greetings, AI-powered chat interactions, and various engagement features to enhance the streaming experience.
+
+## Features
+
+### 🎯 Core Functionality
+- **Smart Viewer Greetings**: Automatically greets new viewers joining the channel with customizable messages
+- **AI Chat Integration**: Responds to mentions and replies using Groq AI with conversation context
+- **Single Word Echo**: Randomly repeats single-word messages to maintain chat engagement
+- **User Management**: Tracks user presence, chat activity, and greeting history
+- **Threaded Replies**: Uses Twitch's reply system for contextual AI responses
+
+### 🤖 AI Features
+- **Conversation Memory**: Maintains per-user conversation history for contextual responses
+- **Multiple Model Support**: Fallback system between different AI models
+- **Rate Limiting**: User and global cooldowns prevent spam
+- **Character Limits**: Configurable response length limits
+- **Spanish Persona**: Configured for Spanish-speaking streams with specific personality
+
+### ⚙️ Technical Features
+- **Persistent Connection**: Maintains stable Twitch IRC connection with auto-reconnect
+- **Graceful Startup**: Ignores existing users during initial connection to prevent greeting spam
+- **Comprehensive Logging**: Configurable log levels for debugging and monitoring
+- **Error Handling**: Robust error handling with model fallbacks and retry logic
 
 ## Prerequisites
-- Node.js 16+
-- A Twitch account for the bot (e.g. `jaimitadas_bot`)
-- OAuth token for the bot account (generate at https://twitchapps.com/tmi/)
-- (Optional but recommended) Twitch application client ID and app access token so the bot can confirm whether the channel is live before greeting
 
-## Setup
-1. Clone/download this repository on the machine that will run the bot.
-2. Install dependencies:
+- **Node.js 16+**
+- **Twitch Bot Account** (e.g., `jaimitadas_bot`)
+- **OAuth Token** for the bot account
+- **Groq API Key** for AI features (optional but recommended)
+
+## Installation
+
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd tuichi-bot
+   ```
+
+2. **Install dependencies**:
    ```bash
    npm install
    ```
-3. Copy `.env.example` to `.env` and populate the values:
-   - `TWITCH_BOT_USERNAME`: Twitch username of the bot account
-   - `TWITCH_CHANNEL`: Channel to monitor (e.g. `jaimevarecto`)
-   - `TWITCH_OAUTH_TOKEN`: Chat OAuth token for the bot; include the `oauth:` prefix
-   - `TWITCH_CLIENT_ID` / `TWITCH_APP_ACCESS_TOKEN` (optional): supply both if you want the bot to poll Twitch Helix to verify the channel is live before sending greetings
 
-   To generate an app access token with your client ID and client secret:
-   ```bash
-   curl -X POST \
-     'https://id.twitch.tv/oauth2/token' \
-     -H 'Content-Type: application/x-www-form-urlencoded' \
-     -d 'client_id=YOUR_CLIENT_ID' \
-     -d 'client_secret=YOUR_CLIENT_SECRET' \
-     -d 'grant_type=client_credentials'
+3. **Configure the bot** by editing the `CONFIG` object in `bot.js`:
+   ```javascript
+   const CONFIG = {
+       twitch: {
+           username: "your_bot_username",
+           channel: "target_channel",
+           oauthToken: "your_oauth_token"
+       },
+       ai: {
+           groq: {
+               apiKey: "your_groq_api_key"
+           }
+       }
+   };
    ```
-   Copy the `access_token` value into `TWITCH_APP_ACCESS_TOKEN`.
 
-## Running the bot
+## Configuration
+
+### Twitch Settings
+```javascript
+twitch: {
+    username: "jaimitadas_bot",     // Bot's Twitch username
+    channel: "jaimevarecto",        // Target channel to monitor
+    oauthToken: "oauth_token_here"  // Bot's OAuth token
+}
+```
+
+### Greeting Configuration
+```javascript
+greetings: {
+    file: "greetings.txt",          // File containing greeting messages
+    cooldownSeconds: 1              // Cooldown between greetings per user
+}
+```
+
+### AI Configuration
+```javascript
+ai: {
+    maxChars: 450,                  // Maximum response length
+    historyLimit: 5,                // Messages to remember per user
+    userCooldownSeconds: 1,         // Per-user AI response cooldown
+    globalCooldownSeconds: 1,       // Global AI response cooldown
+    groq: {
+        apiKey: "your_api_key",
+        baseUrl: "https://api.groq.com/openai/v1",
+        models: [                   // Fallback model list
+            "openai/gpt-oss-120b",
+            "llama-3.3-70b-versatile"
+        ],
+        temperature: 0.7,
+        timeoutMs: 20000,
+        maxTokens: 10000
+    }
+}
+```
+
+### Behavior Settings
+```javascript
+singleWordEchoChance: 0.08,         // 8% chance to echo single words
+singleWordEchoDelayMs: 1500,        // Delay before echoing
+logLevel: "info"                    // Logging level (debug, info, warn, error)
+```
+
+## File Structure
+
+### Required Files
+
+#### `greetings.txt`
+Contains greeting messages, one per line. Use `{user}` as a placeholder for the username:
+```
+🚨 oop te pillé conectada {user} ARRANCA
+🚨 venga guapa te pillé dentro {user}
+🚨 eh {user} sabía que aparecerías por aquí xdding
+```
+
+#### `persona.txt`
+Defines the AI's personality and behavior:
+```
+Eres "jaimitadas_bot", el asistente oficial del canal de Twitch de "JaimeVaRecto".
+En stream jugamos a Beat Saber.
+Mantén un tono juguetón, cercano y grosero, refierete a todo el mundo en femenino.
+Habla siempre en castellano europeo, sin modismos latinoamericanos.
+```
+
+## Running the Bot
+
+Start the bot with:
 ```bash
 npm start
 ```
 
 The bot will:
-- Connect to Twitch IRC with membership capability so JOIN events are delivered
-- Track which users have been greeted and respect the configured cooldown (`TWITCH_GREETING_COOLDOWN`, default 300 seconds)
-- Randomly choose a message from `TWITCH_GREETING_MESSAGES` (pipe-delimited string); `{user}` is replaced with the viewer's name
-- Optionally skip greetings unless the channel is live (requires `TWITCH_CLIENT_ID` and `TWITCH_APP_ACCESS_TOKEN`)
-- Reply to chat mentions of `@jaimitadas_bot` (or replies to the bot) with an LLM-generated answer that reusa el contexto reciente cuando esta configurado
-- Repeat single-word chat messages from viewers every now and then to keep the chat moving (chance controlled by `TWITCH_SINGLE_WORD_ECHO_CHANCE`).
+1. Connect to Twitch IRC
+2. Join the configured channel
+3. Begin monitoring for new viewers and chat activity
+4. Respond to greetings and AI interactions based on configuration
 
-Stop the bot with `Ctrl+C`.
+Stop the bot with `Ctrl+C` or `SIGTERM`.
 
-## Customisation
-- Adjust the greetings by editing `TWITCH_GREETING_MESSAGES` in your `.env`.
-- Modify timing behaviour with `TWITCH_GREETING_COOLDOWN` and `TWITCH_LIVE_CHECK_INTERVAL`.
-- Retrasa los saludos iniciales con `TWITCH_GREETING_STARTUP_DELAY_SECONDS` (segundos, default 120) para que el bot no salude a todo el mundo justo al conectarse.
-- Use `TWITCH_BOT_LOG_LEVEL` (e.g. `DEBUG`) for more verbose logging during troubleshooting.
-- Tweak `persona.txt` (or point `TWITCH_PERSONA_FILE` to your own file) to define how the bot habla en el chat.
-- Ajusta `TWITCH_SINGLE_WORD_ECHO_CHANCE` (valor 0.0 a 1.0) para decidir que tan seguido se repiten las palabras sueltas; usa 0 para desactivar el eco aleatorio.
+## Token Setup Guide
 
-## AI mention replies
-Set up the AI response feature if you want the bot to answer whenever someone mentions `@jaimitadas_bot` or replies to the bot in chat.
+### Getting OAuth Token for the Bot
 
-When enabled, TuichiBot replies directly to the triggering message (Twitch threaded reply) instead of dropping a generic chat line.
+1. **Create Twitch Application**:
+   - Go to https://dev.twitch.tv/console/apps
+   - Create a new application or select existing one
+   - Add redirect URL: `http://localhost:3000/auth/twitch`
+   - Note your `Client ID` and `Client Secret`
 
-Behind the scenes the bot recuerda un pequeno historial por usuario afin de mantener el hilo de la conversacion y puede construir respuestas un poco mas largas y pensadas cuando hace falta.
+2. **Generate User OAuth Token** (for chat access):
+   - Replace `YOUR_CLIENT_ID` in this URL:
+   ```
+   https://id.twitch.tv/oauth2/authorize?response_type=token&client_id=YOUR_CLIENT_ID&redirect_uri=http://localhost:3000/auth/twitch&scope=chat:read+chat:edit
+   ```
+   - Open URL in private browser tab (logged in as bot account)
+   - Authorize the application
+   - Copy the `access_token` from the redirect URL fragment
+   - Add to config with `oauth:` prefix: `oauth:YOUR_ACCESS_TOKEN`
 
-### Option 1: Groq (hosted, free tier available)
-1. Create an API key at https://console.groq.com/keys (the free tier is usually enough for casual usage).
-2. Add these values to your `.env`:
-   - `TWITCH_AI_PROVIDER=groq`
-   - `GROQ_API_KEY=your_api_key_here`
-   - (Optional) `GROQ_MODEL` to override the default `llama3-8b-8192`
-3. Start the bot. You should see a log line confirming `AI replies enabled using provider groq`.
+3. **Generate App Access Token** (for API calls):
+   ```bash
+   curl -X POST 'https://id.twitch.tv/oauth2/token' \
+     -H 'Content-Type: application/x-www-form-urlencoded' \
+     -d 'client_id=YOUR_CLIENT_ID' \
+     -d 'client_secret=YOUR_CLIENT_SECRET' \
+     -d 'grant_type=client_credentials'
+   ```
+   
+   Or use browser console:
+   ```javascript
+   fetch("https://id.twitch.tv/oauth2/token", {
+     method: "POST",
+     headers: { "Content-Type": "application/x-www-form-urlencoded" },
+     body: new URLSearchParams({
+       client_id: "YOUR_CLIENT_ID",
+       client_secret: "YOUR_CLIENT_SECRET",
+       grant_type: "client_credentials"
+     })
+   }).then(r => r.json()).then(console.log).catch(console.error);
+   ```
 
-### Option 2: Ollama (local, zero cost)
-1. Install and start Ollama from https://ollama.com/.
-2. Pull a compatible chat model, for example `ollama pull phi3:mini`.
-3. Update `.env` (or rely on defaults):
-   - `TWITCH_AI_PROVIDER=ollama`
-   - `OLLAMA_URL=http://127.0.0.1:11434`
-   - `OLLAMA_MODEL=phi3:mini`
-4. Run the bot with Ollama running in the background.
+### Getting Groq API Key
 
-### Extra tuning
-- `TWITCH_MENTION_COOLDOWN` (seconds, default 30) controls how often the bot will answer the same viewer.
-- `TWITCH_GLOBAL_MENTION_COOLDOWN` (seconds, default 5) is a global throttle between AI replies.
-- `TWITCH_MENTION_MAX_CHARS` caps the length of the generated reply (default 450 characters).
-- `TWITCH_MENTION_CONTEXT_MESSAGES` controla cuantos mensajes previos (por usuario) se envian al modelo para mantener contexto (default 6).
-- `AI_REQUEST_TIMEOUT_MS` overrides the network timeout for the LLM call (falls back to 20000 ms).
-- `GROQ_MODELS` (comma-separated) or `OLLAMA_MODELS` lets you define fallback models; the bot automatically tries the next model if one hits its rate limit or errors.
+1. Visit https://console.groq.com/keys
+2. Create a new API key
+3. Copy the key for use in configuration
 
-## Notes
-- Ensure the bot account has followed the target channel so it can chat immediately when the stream is live.
-- Run the bot only while you are streaming if you do not configure the live status check.
-- Keep your OAuth and app tokens private. Do not commit them to source control.
+**Security Note**: Always keep your tokens and API keys private. Rotate client secrets after exposure and never commit sensitive data to version control.
+
+## Code Architecture
+
+### Class Structure
+
+#### `TwitchChatBot`
+Main bot class that handles all functionality:
+
+**Constructor Parameters**:
+- `username`: Bot's Twitch username
+- `channel`: Target channel to monitor
+- `token`: OAuth token for authentication
+- `messages`: Array of greeting messages
+- `persona`: AI personality configuration
+- `groqConfig`: Groq API configuration
+- `greeting`: Greeting behavior settings
+- `singleWordEchoChance`: Probability of echoing single words
+- `ai`: AI response configuration
+
+**Key Properties**:
+- `client`: TMI.js client instance
+- `presentUsers`: Set of currently present users
+- `greetedUsers`: Map tracking greeting timestamps
+- `conversationHistory`: Per-user conversation context
+- `pendingAIRequests`: Set of users with pending AI requests
+
+### Core Methods
+
+#### Connection Management
+- `start()`: Initializes connection to Twitch IRC
+- `shutdown()`: Gracefully disconnects and cleans up
+- `registerHandlers()`: Sets up event listeners
+
+#### User Management
+- `handleJoin(channel, username, self)`: Processes user join events
+- `handlePart(channel, username, self)`: Processes user leave events
+- `handleInitialNames(channel, users)`: Handles initial user list
+
+#### Greeting System
+- `scheduleGreeting(username)`: Determines if user should be greeted
+- `sendGreeting(username)`: Sends greeting message
+- `pickGreeting(username)`: Selects random greeting template
+
+#### AI Integration
+- `handleMention(params)`: Processes mentions and replies
+- `respondToMention(params)`: Generates and sends AI responses
+- `fetchGroqResponse(messages)`: Communicates with Groq API
+- `buildAIChatMessages(params)`: Constructs conversation context
+
+#### Message Handling
+- `handleMessage(channel, tags, message, self)`: Main message processor
+- `handleSingleWordEcho(message, tags)`: Manages word echoing
+- `sendMessage(message, replyToId)`: Sends messages with optional threading
+
+### Utility Functions
+
+#### File Operations
+- `readTextFile(filePath, label)`: Safely reads text files
+- `loadGreetings(filePath)`: Loads and validates greeting messages
+- `loadPersona(filePath)`: Loads AI personality configuration
+
+#### Text Processing
+- `normalizeWhitespace(text)`: Cleans and normalizes text
+- `clampResponseLength(text, maxChars)`: Truncates responses appropriately
+
+#### Logging
+- `log(level, ...args)`: Configurable logging system
+
+### Configuration Object Structure
+
+```javascript
+const CONFIG = {
+    logLevel: "info",                    // Logging verbosity
+    twitch: {
+        username: "bot_username",        // Bot account username
+        channel: "target_channel",       // Channel to monitor
+        oauthToken: "oauth_token"        // Authentication token
+    },
+    greetings: {
+        file: "greetings.txt",           // Greeting messages file
+        cooldownSeconds: 1               // Per-user greeting cooldown
+    },
+    persona: {
+        file: "persona.txt"              // AI personality file
+    },
+    singleWordEchoChance: 0.08,          // Echo probability (0-1)
+    singleWordEchoDelayMs: 1500,         // Echo delay in milliseconds
+    ai: {
+        maxChars: 450,                   // Max response length
+        historyLimit: 5,                 // Conversation memory depth
+        userCooldownSeconds: 1,          // Per-user AI cooldown
+        globalCooldownSeconds: 1,        // Global AI cooldown
+        groq: {
+            apiKey: "api_key",           // Groq API key
+            baseUrl: "api_endpoint",     // API endpoint URL
+            models: ["model1", "model2"], // Fallback model list
+            temperature: 0.7,            // Response creativity
+            timeoutMs: 20000,            // Request timeout
+            maxTokens: 10000             // Max tokens per request
+        }
+    }
+};
+```
+
+### Event Flow
+
+1. **Startup**:
+   - Load configuration files
+   - Initialize bot instance
+   - Connect to Twitch IRC
+   - Request membership capability
+   - Enter startup grace period
+
+2. **User Join**:
+   - Detect JOIN event
+   - Check if user should be greeted
+   - Apply cooldown rules
+   - Send greeting if appropriate
+   - Update user tracking
+
+3. **Message Processing**:
+   - Receive chat message
+   - Update user activity status
+   - Check for single-word echo opportunity
+   - Detect mentions or replies to bot
+   - Generate AI response if triggered
+
+4. **AI Response**:
+   - Build conversation context
+   - Call Groq API with fallback models
+   - Process and truncate response
+   - Send threaded reply
+   - Update conversation history
+
+### Dependencies
+
+- **tmi.js**: Twitch IRC client library
+- **node-fetch**: HTTP client for API calls  
+- **fs**: File system operations
+- **path**: File path utilities
+
+### Performance Considerations
+
+- **Memory Management**: Conversation history is limited per user
+- **Rate Limiting**: Multiple cooldown systems prevent API abuse
+- **Connection Stability**: Auto-reconnect with state preservation
+- **Error Recovery**: Graceful degradation on API failures
+
+This architecture provides a robust, scalable foundation for Twitch chat bot functionality with extensible AI integration.
+
+## Bot Behavior
+
+### Greeting System
+- **New User Detection**: Monitors JOIN events to detect new viewers
+- **Cooldown Management**: Prevents greeting the same user too frequently
+- **Startup Grace Period**: Ignores existing users for 5 seconds after connection
+- **Message Rotation**: Randomly selects from available greeting messages
+- **User Filtering**: Ignores bot accounts and specified users
+
+### AI Response System
+- **Trigger Conditions**: Responds to @mentions or direct replies
+- **Context Awareness**: Maintains conversation history per user
+- **Rate Limiting**: Implements both per-user and global cooldowns
+- **Model Fallback**: Tries multiple AI models if one fails
+- **Response Threading**: Uses Twitch's reply feature for context
+
+### Single Word Echo
+- **Random Activation**: Configurable chance to repeat single-word messages
+- **Delay System**: Optional delay before echoing
+- **Smart Filtering**: Ignores commands (@, !) and bot replies
+
+## API Integration
+
+### Groq AI Integration
+The bot integrates with Groq's API for AI responses:
+
+- **Authentication**: Uses API key authentication
+- **Model Selection**: Supports multiple models with automatic fallback
+- **Error Handling**: Comprehensive error handling with detailed logging
+- **Rate Limiting**: Respects API limits and implements backoff strategies
+
+### Twitch IRC Integration
+- **TMI.js Library**: Uses the official Twitch IRC library
+- **Membership Capability**: Requests membership events for JOIN/PART detection
+- **Raw Commands**: Supports raw IRC commands for advanced features
+- **Auto-reconnect**: Automatically reconnects on connection loss
+
+## Logging and Monitoring
+
+### Log Levels
+- **DEBUG**: Detailed operation information
+- **INFO**: General operational messages
+- **WARN**: Warning conditions and recoverable errors
+- **ERROR**: Error conditions requiring attention
+
+### Monitored Events
+- Connection status and reconnections
+- User join/part events
+- Greeting delivery
+- AI response generation
+- Error conditions and fallbacks
+
+## Error Handling
+
+### Connection Resilience
+- Automatic reconnection on disconnection
+- Graceful handling of network timeouts
+- State preservation during reconnects
+
+### AI Response Handling
+- Model fallback on API failures
+- Timeout handling for slow responses
+- Rate limit detection and backoff
+
+### User State Management
+- Persistent user tracking across reconnects
+- Cleanup of stale user data
+- Graceful handling of malformed messages
+
+## Security Considerations
+
+### Token Management
+- OAuth tokens should be kept private
+- Tokens should be rotated regularly
+- No sensitive data should be logged
+
+### Rate Limiting
+- Implements Twitch's rate limits
+- Prevents spam through cooldown systems
+- Monitors for unusual activity patterns
+
+## Troubleshooting
+
+### Common Issues
+1. **Connection failures**: Check OAuth token validity
+2. **No greetings**: Verify channel name and bot permissions
+3. **AI not responding**: Check Groq API key and quota
+4. **High memory usage**: Reduce history limits and clean up old data
+
+### Debug Mode
+Enable debug logging by setting `logLevel: "debug"` in the configuration for detailed operational information.
 
 
 ## SETUP !!!
