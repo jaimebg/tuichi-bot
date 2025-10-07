@@ -6,7 +6,7 @@ A sophisticated Node.js Twitch chat bot for the `jaimevarecto` channel, featurin
 
 ### Core Functionality
 - **Smart Greetings**: Welcomes new viewers with customizable messages, skipping those who chat first
-- **AI Chat Responses**: Responds to @mentions and replies using Groq AI with user memory and context
+- **AI Chat Responses**: Responds to @mentions and replies using Groq AI with user memory, context, and web search capabilities
 - **Interactive Adventures**: Start story-driven adventures with `!aventura [theme] [rounds]` where viewers vote on choices
 - **Single Word Echo**: Randomly repeats single-word messages for engagement
 - **User Memory**: Tracks personality traits, conversation themes, and engagement patterns
@@ -56,6 +56,7 @@ A sophisticated Node.js Twitch chat bot for the `jaimevarecto` channel, featurin
 - Node.js 16+
 - Twitch bot account with chat permissions
 - Groq API key (optional, for AI features)
+- Brave Search API key (optional, for web search in AI responses)
 
 ## Dependencies
 
