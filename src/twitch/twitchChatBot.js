@@ -857,34 +857,62 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             }
 
             let aiReply = await this.fetchGroqResponse(chatMessages);
-            const finalMessage = clampResponseLength(aiReply, this.aiMaxChars);
+            let finalMessage = clampResponseLength(aiReply, this.aiMaxChars);
             if (!finalMessage) {
                 log("debug", `Groq returned empty response for ${displayName}.`);
                 return;
             }
 
-            // Check for search request
-            const searchMatch = finalMessage.match(/\[SEARCH:\s*(.*?)\]/);
-            if (searchMatch) {
-                const query = searchMatch[1].trim();
+            const maxSearchAttempts = 2;
+            let searchAttempts = 0;
+            let directive = this.extractSearchDirective(finalMessage);
+
+            while (directive && searchAttempts < maxSearchAttempts) {
+                const query = directive.query;
+                if (!query) {
+                    log("debug", "Search directive detected without query. Removing directive.");
+                    finalMessage = directive.cleaned;
+                    break;
+                }
+
                 log("debug", `Performing web search for: ${query}`);
                 const searchResults = await this.searchWeb(query);
-                // Add search results to messages
-                chatMessages.push({ role: "system", content: `Resultados de búsqueda web para "${query}": ${searchResults}` });
-                // Retry AI with search results
+                chatMessages.push({
+                    role: "system",
+                    content: `Resultados de busqueda web para "${query}": ${searchResults}`
+                });
+
+                searchAttempts += 1;
+
                 const retryAiReply = await this.fetchGroqResponse(chatMessages);
                 const retryMessage = clampResponseLength(retryAiReply, this.aiMaxChars);
                 if (retryMessage) {
-                    aiReply = retryMessage;
+                    aiReply = retryAiReply;
                     finalMessage = retryMessage;
-                } else {
-                    // If retry fails, send search results directly
-                    aiReply = `Resultados de búsqueda para "${query}": ${searchResults}`;
-                    finalMessage = aiReply;
+                    directive = this.extractSearchDirective(finalMessage);
+                    continue;
+                }
+
+                finalMessage = `Resultados de busqueda para "${query}": ${searchResults}`;
+                directive = null;
+                break;
+            }
+
+            if (directive) {
+                finalMessage = directive.cleaned;
+            } else {
+                const leftoverDirective = this.extractSearchDirective(finalMessage);
+                if (leftoverDirective) {
+                    finalMessage = leftoverDirective.cleaned;
                 }
             }
 
-            await this.sendMessage(aiReply, replyToId);
+            if (!finalMessage) {
+                log("debug", `Groq returned empty response for ${displayName} after search handling.`);
+                return;
+            }
+
+            await this.sendMessage(finalMessage, replyToId);
 
             // Update both old and new conversation tracking
             this.updateConversationHistory(userKey, message, finalMessage);
@@ -1277,6 +1305,26 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             history.splice(0, history.length - this.aiHistoryLimit);
         }
         this.conversationHistory.set(userKey, history);
+    }
+
+    extractSearchDirective(text) {
+        if (!text) {
+            return null;
+        }
+        const patterns = [
+            /\[SEARCH:\s*([^\]\r\n]+?)\s*\]/i,
+            /\bSEARCH[_\s]*NEEDED\b\s*[:\-]?\s*([^\r\n]+)?/i,
+            /\bNEEDS[_\s]*SEARCH\b\s*[:\-]?\s*([^\r\n]+)?/i
+        ];
+        for (const pattern of patterns) {
+            const match = text.match(pattern);
+            if (match) {
+                const query = (match[1] || "").trim();
+                const cleaned = text.replace(match[0], " ").replace(/\s+/g, " ").trim();
+                return { query, cleaned };
+            }
+        }
+        return null;
     }
 
     async sendMessage(message, replyToId) {
