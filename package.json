@@ -4,7 +4,8 @@
   "description": "Node.js Twitch chat bot that greets viewers joining jaimevarecto when the channel is live.",
   "main": "main.js",
   "scripts": {
-    "start": "node main.js"
+    "start": "node main.js",
+    "add-rewards": "node addRewards.js"
   },
   "keywords": [
     "twitch",

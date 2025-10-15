@@ -44,6 +44,10 @@ A sophisticated Node.js Twitch chat bot for the `jaimevarecto` channel, featurin
    - Use a process manager such as `pm2`, Docker, or systemd to keep the bot online.
    - Remember to expose the media overlay port (`8910` by default) if you want to load the browser overlay in OBS or similar tools.
 
+## Scripts
+
+- **`addRewards.js`** – Automates adding channel point rewards to Twitch from `resources/mediaRewards.json`. It refreshes the API token, creates missing rewards on Twitch, and updates the JSON with their IDs. Run with `npm run add-rewards` after editing rewards. Requires valid Twitch API credentials in `main.js`.
+
 ## Configuration Files
 
 All user-editable text and reward configuration is stored in the `resources/` folder:
@@ -52,7 +56,7 @@ All user-editable text and reward configuration is stored in the `resources/` fo
 - **`resources/persona.txt`** – AI personality and behavior guidelines
 - **`resources/lore.txt`** – Story elements and world-building for adventures
 - **`resources/aliases.txt`** – Username-to-alias mappings (format `username:Alias Name`)
-- **`resources/mediaRewards.json`** – Overlay reward mappings for channel redemptions
+- **`resources/mediaRewards.json`** – Overlay reward mappings for channel redemptions (each reward has an `id` matching the Twitch reward ID, `title`, `cost`, and `action` for media playback).
 
 Runtime state (user memories, chat history, etc.) is still stored separately under `data/` when persistence is enabled.
 
@@ -64,6 +68,7 @@ Runtime state (user memories, chat history, etc.) is still stored separately und
 ## Project Structure
 
 - `main.js` – Minimal bootstrapper that loads config files and starts the bot (used by `npm start`).
+- `addRewards.js` – Utility script to create and sync channel point rewards with Twitch API.
 - `src/logger.js` – Centralised logging with adjustable levels.
 - `src/config/loaders.js` – File loaders for greetings, persona, lore, aliases.
 - `src/utils/text.js` – Common text helpers (whitespace normalisation, clamping).

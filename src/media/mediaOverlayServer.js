@@ -11,7 +11,6 @@ class MediaOverlayServer {
         this.displayDurationMs = Number.isFinite(config.displayDurationMs) ? Number(config.displayDurationMs) : 12000;
         this.keepLastFrame = !!config.keepLastFrame;
         this.rewardIdMap = {};
-        this.rewardNameMap = {};
         this.server = null;
         this.clients = new Set();
         this.keepAliveInterval = null;
@@ -21,18 +20,17 @@ class MediaOverlayServer {
         this.loadRewardConfig(config);
     }
 
-    setRewardMap(map, lowerCaseKeys) {
+    setRewardMap(map) {
         if (!map || typeof map !== "object") {
             return;
         }
-        const target = lowerCaseKeys ? this.rewardNameMap : this.rewardIdMap;
+        const target = this.rewardIdMap;
         for (const [key, value] of Object.entries(map)) {
-            const normalizedKey = lowerCaseKeys ? key.toLowerCase() : key;
             const normalizedAction = this.normalizeAction(value);
-            if (!normalizedKey || !normalizedAction) {
+            if (!key || !normalizedAction) {
                 continue;
             }
-            target[normalizedKey] = normalizedAction;
+            target[key] = normalizedAction;
         }
     }
 
@@ -42,10 +40,7 @@ class MediaOverlayServer {
         }
 
         if (config.rewardMap) {
-            this.setRewardMap(config.rewardMap, false);
-        }
-        if (config.rewardNameMap) {
-            this.setRewardMap(config.rewardNameMap, true);
+            this.setRewardMap(config.rewardMap);
         }
 
         const rewardEntries = [];
@@ -104,30 +99,7 @@ class MediaOverlayServer {
             this.rewardIdMap[rewardId] = normalizedAction;
         }
 
-        const nameCandidates = [];
-        if (typeof entry.name === "string") {
-            nameCandidates.push(entry.name);
-        }
-        if (typeof entry.rewardName === "string") {
-            nameCandidates.push(entry.rewardName);
-        }
-        if (Array.isArray(entry.names)) {
-            nameCandidates.push(...entry.names);
-        }
-        if (Array.isArray(entry.rewardNames)) {
-            nameCandidates.push(...entry.rewardNames);
-        }
-
-        for (const name of nameCandidates) {
-            if (typeof name !== "string") {
-                continue;
-            }
-            const normalizedName = name.trim().toLowerCase();
-            if (!normalizedName) {
-                continue;
-            }
-            this.rewardNameMap[normalizedName] = normalizedAction;
-        }
+        // Removed name-based mapping, using only ID-based mapping
     }
 
     normalizeAction(action) {
