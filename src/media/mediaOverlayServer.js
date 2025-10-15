@@ -328,7 +328,9 @@ class MediaOverlayServer {
         };
 
         this.broadcast(payload);
-        this.scheduleClear(action.durationMs, action.loop || persist);
+        if (action.mediaType === 'image' || action.loop || persist) {
+            this.scheduleClear(action.durationMs, action.loop || persist);
+        }
         return true;
     }
 
@@ -447,9 +449,15 @@ audio { display: none; }
             audio.loop = !!action.loop;
             audio.muted = !!action.muted;
             audio.play().catch(() => {});
+            audio.onended = () => {
+                if (!keepVisible) {
+                    reset();
+                }
+            };
         } else if (action.mediaType === 'image') {
             image.src = action.url;
             image.classList.remove('hidden');
+            scheduleHide(duration, keepVisible);
         } else {
             video.src = action.url;
             video.loop = !!action.loop;
@@ -480,7 +488,7 @@ audio { display: none; }
             };
         }
 
-        scheduleHide(duration, keepVisible);
+        // scheduleHide(duration, keepVisible); // Removed, now handled per type
     }
 
     const source = new EventSource('events');

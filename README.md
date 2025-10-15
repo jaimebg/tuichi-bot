@@ -56,7 +56,7 @@ All user-editable text and reward configuration is stored in the `resources/` fo
 - **`resources/persona.txt`** – AI personality and behavior guidelines
 - **`resources/lore.txt`** – Story elements and world-building for adventures
 - **`resources/aliases.txt`** – Username-to-alias mappings (format `username:Alias Name`)
-- **`resources/mediaRewards.json`** – Overlay reward mappings for channel redemptions (each reward has an `id` matching the Twitch reward ID, `title`, `cost`, and `action` for media playback).
+- **`resources/mediaRewards.json`** – Overlay reward mappings for channel redemptions (each reward has an `id` matching the Twitch reward ID, `title`, `cost`, and `action` for media playback; durations are detected automatically for videos and audio).
 
 Runtime state (user memories, chat history, etc.) is still stored separately under `data/` when persistence is enabled.
 
