@@ -16,6 +16,8 @@ class MediaOverlayServer {
         this.keepAliveInterval = null;
         this.currentClearTimer = null;
         this.started = false;
+        this.queue = [];
+        this.isPlaying = false;
 
         this.loadRewardConfig(config);
     }
@@ -282,6 +284,19 @@ class MediaOverlayServer {
     clearDisplay() {
         this.currentClearTimer = null;
         this.broadcast({ type: "clear", timestamp: Date.now() });
+        this.isPlaying = false;
+        this.processQueue();
+    }
+
+    processQueue() {
+        if (this.isPlaying || this.queue.length === 0) {
+            return;
+        }
+        const item = this.queue.shift();
+        this.isPlaying = true;
+        this.broadcast(item);
+        const action = item.action;
+        this.scheduleClear(action.durationMs, action.loop || item.keepVisible);
     }
 
     getActionForRedemption(redemption) {
@@ -327,10 +342,8 @@ class MediaOverlayServer {
             timestamp: Date.now()
         };
 
-        this.broadcast(payload);
-        if (action.mediaType === 'image' || action.loop || persist) {
-            this.scheduleClear(action.durationMs, action.loop || persist);
-        }
+        this.queue.push(payload);
+        this.processQueue();
         return true;
     }
 
