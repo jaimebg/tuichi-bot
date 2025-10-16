@@ -69,6 +69,7 @@ class TwitchChatBot {
         this.aiHistoryLimit = Number(ai?.historyLimit ?? 0);
         this.aiUserCooldownMs = Number(ai?.userCooldownMs ?? 0);
         this.aiGlobalCooldownMs = Number(ai?.globalCooldownMs ?? 0);
+        this.autoTriggerChance = Number(intelligence?.autoTriggerChance ?? 0.1);
 
         this.presentUsers = new Set();
         this.userHasChatted = new Set();
@@ -668,7 +669,7 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
                 }
             }
         }
-        if (matchingTitles.length > 0) {
+        if (matchingTitles.length > 0 && Math.random() < this.autoTriggerChance) {
             const randomIndex = Math.floor(Math.random() * matchingTitles.length);
             const selectedTitle = matchingTitles[randomIndex];
             this.triggerMediaByTitle(selectedTitle, displayName);
