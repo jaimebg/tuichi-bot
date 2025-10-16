@@ -887,6 +887,7 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             const maxSearchAttempts = 2;
             let searchAttempts = 0;
             let directive = this.extractSearchDirective(finalMessage);
+            let hasNotifiedUser = false;
 
             while (directive && searchAttempts < maxSearchAttempts) {
                 const query = directive.query;
@@ -896,7 +897,15 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
                     break;
                 }
 
-                log("debug", `Performing web search for: ${query}`);
+                // Notify user that a search is being performed
+                if (!hasNotifiedUser) {
+                    log("debug", `Performing web search for: ${query}`);
+                    await this.sendMessage(`Buscando información sobre "${query}"...`, replyToId);
+                    hasNotifiedUser = true;
+                    // Small delay to ensure notification is sent before search
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+
                 const searchResults = await this.searchWeb(query);
                 if (searchResults === 'Search failed.' || searchResults === 'Web search not configured.') {
                     finalMessage = `Lo siento, no pude obtener información de internet para "${query}". ${directive.cleaned}`;
