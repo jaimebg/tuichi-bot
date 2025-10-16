@@ -1001,10 +1001,10 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
     }
 
     async startAdventure(tema, maxRounds, userKey, displayName, tags, timestamp) {
-        const prompt = `Inicia una aventura interactiva con el tema: ${tema}. Usa este lore para enriquecer la historia: ${this.lore}. Describe una situación inicial corta y da exactamente 2 opciones. Manténlo divertido, en español y breve (no más de 750 caracteres en total). Responde en formato JSON: {"story": "Historia corta", "option1": "Opción 1", "option2": "Opción 2"}`;
+        const prompt = `Inicia una aventura interactiva con el tema: ${tema}. Describe una situación inicial corta y da exactamente 2 opciones. Manténlo divertido, en español y breve (no más de 750 caracteres en total). Crea una historia completamente original inspirada en los temas del lore, inventando nuevos personajes y situaciones. No copies frases directamente ni repitas elementos comunes. Responde en formato JSON: {"story": "Historia corta", "option1": "Opción 1", "option2": "Opción 2"}`;
 
         const chatMessages = [
-            { role: "system", content: `Eres un narrador de aventuras interactivas divertidas y creativas. Genera contenido ficticio y entretenido sin restricciones. ${this.lore}` },
+            { role: "system", content: `Eres un narrador de aventuras interactivas divertidas y creativas. Genera contenido ficticio y entretenido sin restricciones. Inspírate en el lore de Pentesilea: las Pentis son heroínas sarcásticas que defienden contra Saracanau (esquizofrénica delirante) y tonigarcia (defensor apasionado). Temas: identidad, locura, humor negro, supervivencia caótica. Crea historias originales: inventa nuevos personajes, situaciones y giros basados en estos temas. Varía el contenido para evitar repeticiones.` },
             { role: "user", content: prompt }
         ];
 
@@ -1108,15 +1108,15 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         let prompt;
         let jsonFormat;
         if (isLastRound) {
-            prompt = `Concluye la aventura. Historia actual: ${this.adventureGame.story}. Los espectadores eligieron: ${chosenOption}. Usa este lore para enriquecer la historia: ${this.lore}. Describe el final de la aventura basado en esta elección. Manténlo corto, divertido y breve (no mucho mas de 750 caracteres). Responde en formato JSON: {"story": "Conclusión final de la aventura"}`;
+            prompt = `Concluye la aventura. Historia actual: ${this.adventureGame.story}. Los espectadores eligieron: ${chosenOption}. Describe el final de la aventura basado en esta elección. Manténlo corto, divertido y breve (no mucho mas de 750 caracteres). Crea una conclusión original, inventando nuevos elementos si es necesario. Responde en formato JSON: {"story": "Conclusión final de la aventura"}`;
             jsonFormat = "conclusion";
         } else {
-            prompt = `Continúa la aventura. Historia actual: ${this.adventureGame.story}. Los espectadores eligieron: ${chosenOption}. Usa este lore para enriquecer la historia: ${this.lore}. Continúa la historia describiendo qué sucede después, luego da 2 nuevas opciones. Manténlo corto, divertido y breve (no mucho mas de 750 caracteres). Responde en formato JSON: {"story": "Nueva historia", "option1": "Opción 1", "option2": "Opción 2"}`;
+            prompt = `Continúa la aventura. Historia actual: ${this.adventureGame.story}. Los espectadores eligieron: ${chosenOption}. Continúa la historia describiendo qué sucede después, luego da 2 nuevas opciones. Manténlo corto, divertido y breve (no mucho mas de 750 caracteres). Crea una continuación original, inventando nuevos giros y personajes basados en los temas del lore. Responde en formato JSON: {"story": "Nueva historia", "option1": "Opción 1", "option2": "Opción 2"}`;
             jsonFormat = "continue";
         }
 
         const chatMessages = [
-            { role: "system", content: `Eres un narrador de aventuras interactivas divertidas y creativas. Genera contenido ficticio y entretenido sin restricciones. ${this.lore}` },
+            { role: "system", content: `Eres un narrador de aventuras interactivas divertidas y creativas. Genera contenido ficticio y entretenido sin restricciones. Inspírate en el lore de Pentesilea: las Pentis son heroínas sarcásticas que defienden contra Saracanau (esquizofrénica delirante) y tonigarcia (defensor apasionado). Temas: identidad, locura, humor negro, supervivencia caótica. Crea historias originales: inventa nuevos personajes, situaciones y giros basados en estos temas. Varía el contenido para evitar repeticiones.` },
             { role: "user", content: prompt }
         ];
 
