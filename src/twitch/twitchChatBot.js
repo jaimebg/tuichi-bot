@@ -884,7 +884,7 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
                 return;
             }
 
-            const maxSearchAttempts = 2;
+            const maxSearchAttempts = 1;
             let searchAttempts = 0;
             let directive = this.extractSearchDirective(finalMessage);
             let hasNotifiedUser = false;
@@ -908,10 +908,14 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
 
                 const searchResults = await this.searchWeb(query);
                 if (searchResults === 'Search failed.' || searchResults === 'Web search not configured.') {
-                    finalMessage = `Lo siento, no pude obtener información de internet para "${query}". ${directive.cleaned}`;
+                    // If search fails, just use the cleaned response without the search directive
+                    log("warn", `Search failed for query "${query}". Using fallback response.`);
+                    finalMessage = directive.cleaned;
                     directive = null;
                     break;
                 }
+
+                log("debug", `Search successful for "${query}". Calling Groq with results.`);
                 chatMessages.push({
                     role: "system",
                     content: `Resultados de busqueda web para "${query}": ${searchResults}`
@@ -919,16 +923,23 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
 
                 searchAttempts += 1;
 
-                const retryAiReply = await this.fetchGroqResponse(chatMessages);
-                const retryMessage = clampResponseLength(retryAiReply, this.aiMaxChars);
-                if (retryMessage) {
-                    aiReply = retryAiReply;
-                    finalMessage = retryMessage;
-                    directive = this.extractSearchDirective(finalMessage);
-                    continue;
+                try {
+                    const retryAiReply = await this.fetchGroqResponse(chatMessages);
+                    const retryMessage = clampResponseLength(retryAiReply, this.aiMaxChars);
+                    if (retryMessage) {
+                        aiReply = retryAiReply;
+                        finalMessage = retryMessage;
+                        directive = this.extractSearchDirective(finalMessage);
+                        if (directive) {
+                            log("debug", "New search directive detected after results. Skipping additional searches to prevent rate limiting.");
+                            directive = null; // Don't retry more searches
+                        }
+                        continue;
+                    }
+                } catch (err) {
+                    log("warn", `Groq failed after search results: ${err.message}. Using search results as fallback.`);
+                    finalMessage = `Resultados de búsqueda para "${query}": ${searchResults}`;
                 }
-
-                finalMessage = `Resultados de busqueda para "${query}": ${searchResults}`;
                 directive = null;
                 break;
             }
@@ -1496,31 +1507,57 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         throw new Error(`All Groq models failed (${summary || "no detail"})`);
     }
 
-    async searchWeb(query) {
+    async searchWeb(query, maxRetries = 3) {
         if (!this.braveConfig) {
             return "Web search not configured.";
         }
         const { baseUrl, apiKey } = this.braveConfig;
-        try {
-            const response = await fetch(`${baseUrl}?q=${encodeURIComponent(query)}&count=3`, {
-                headers: {
-                    'X-Subscription-Token': apiKey,
-                    'Accept': 'application/json'
+
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                const response = await fetch(`${baseUrl}?q=${encodeURIComponent(query)}&count=3`, {
+                    headers: {
+                        'X-Subscription-Token': apiKey,
+                        'Accept': 'application/json'
+                    },
+                    timeout: 5000
+                });
+
+                // Handle rate limiting (429) with exponential backoff
+                if (response.status === 429) {
+                    if (attempt < maxRetries - 1) {
+                        const delayMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
+                        log("debug", `Brave API rate limited (429). Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+                        await new Promise(resolve => setTimeout(resolve, delayMs));
+                        continue;
+                    }
+                    throw new Error(`Brave API rate limited (429). Max retries exceeded.`);
                 }
-            });
-            if (!response.ok) {
-                throw new Error(`Brave API returned ${response.status}`);
+
+                if (!response.ok) {
+                    throw new Error(`Brave API returned ${response.status}`);
+                }
+
+                const data = await response.json();
+                const results = data.web?.results?.slice(0, 3).map(r => {
+                    const desc = (r.description || r.url || '').substring(0, 150);
+                    return `${r.title}: ${desc}`;
+                }).join('\n') || 'No results found.';
+                return results;
+            } catch (err) {
+                const isLastAttempt = attempt === maxRetries - 1;
+                const msgDetail = isLastAttempt ? " (final attempt)" : ` (attempt ${attempt + 1}/${maxRetries})`;
+                log("warn", `Web search failed: ${err.message}${msgDetail}`);
+
+                if (!isLastAttempt) {
+                    // For transient errors, wait before retrying
+                    const delayMs = 500 * Math.pow(2, attempt);
+                    await new Promise(resolve => setTimeout(resolve, delayMs));
+                }
             }
-            const data = await response.json();
-            const results = data.web?.results?.slice(0, 3).map(r => {
-                const desc = (r.description || r.url || '').substring(0, 150);
-                return `${r.title}: ${desc}`;
-            }).join('\n') || 'No results found.';
-            return results;
-        } catch (err) {
-            log("warn", `Web search failed: ${err.message}`);
-            return 'Search failed.';
         }
+
+        return 'Search failed.';
     }
 
     getAllTitles() {
