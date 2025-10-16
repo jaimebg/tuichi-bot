@@ -1295,7 +1295,7 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             ? "El espectador esta respondiendo directamente a tu ultimo mensaje."
             : "El espectador te esta mencionando en el chat.";
 
-        const systemContent = `${personaText}${contextText} Si necesitas información actual o hechos del internet, responde SOLO con SEARCH: tu consulta y te proporcionaré resultados. ${limitsLine}`;
+        const systemContent = `${personaText}${contextText} Si necesitas información actual o hechos del internet, responde SOLO con BUSCAR: tu consulta y te proporcionaré resultados. ${limitsLine}`;
 
         // Get traditional conversation history as fallback
         const history = this.getConversationHistory(userKey);
@@ -1345,7 +1345,8 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         }
         const patterns = [
             /\[SEARCH:\s*([^\]\r\n]+?)\s*\]/i,
-            /\bSEARCH\s*:\s*([^\r\n]+)?/i,
+            /\bSEARCH\s*:?\s*([^\r\n]+)?/i,
+            /\bBUSCAR\s*:?\s*([^\r\n]+)?/i,
             /\bSEARCH[_\s]*NEEDED\b\s*[:\-]?\s*([^\r\n]+)?/i,
             /\bNEEDS[_\s]*SEARCH\b\s*[:\-]?\s*([^\r\n]+)?/i
         ];
