@@ -656,19 +656,22 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
 
         // Auto-trigger rewards based on message content
         const lowerMessage = trimmedMessage.toLowerCase();
-        let triggered = false;
+        const matchingTitles = [];
         for (const title of this.getAllTitles()) {
             const titleWords = title.split(/\s+/);
             if (titleWords.length > 3) {
                 for (const word of titleWords) {
                     if (word && lowerMessage.includes(word)) {
-                        this.triggerMediaByTitle(title, displayName);
-                        triggered = true;
+                        matchingTitles.push(title);
                         break;
                     }
                 }
             }
-            if (triggered) break;
+        }
+        if (matchingTitles.length > 0) {
+            const randomIndex = Math.floor(Math.random() * matchingTitles.length);
+            const selectedTitle = matchingTitles[randomIndex];
+            this.triggerMediaByTitle(selectedTitle, displayName);
         }
     }
 
