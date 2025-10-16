@@ -1473,7 +1473,7 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         }
         const { baseUrl, apiKey } = this.braveConfig;
         try {
-            const response = await fetch(`${baseUrl}?q=${encodeURIComponent(query)}&count=5`, {
+            const response = await fetch(`${baseUrl}?q=${encodeURIComponent(query)}&count=3`, {
                 headers: {
                     'X-Subscription-Token': apiKey,
                     'Accept': 'application/json'
@@ -1483,7 +1483,10 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
                 throw new Error(`Brave API returned ${response.status}`);
             }
             const data = await response.json();
-            const results = data.web?.results?.slice(0, 5).map(r => `${r.title}: ${r.description || r.url}`).join('\n') || 'No results found.';
+            const results = data.web?.results?.slice(0, 3).map(r => {
+                const desc = (r.description || r.url || '').substring(0, 150);
+                return `${r.title}: ${desc}`;
+            }).join('\n') || 'No results found.';
             return results;
         } catch (err) {
             log("warn", `Web search failed: ${err.message}`);
