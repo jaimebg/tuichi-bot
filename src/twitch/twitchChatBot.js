@@ -898,6 +898,11 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
 
                 log("debug", `Performing web search for: ${query}`);
                 const searchResults = await this.searchWeb(query);
+                if (searchResults === 'Search failed.' || searchResults === 'Web search not configured.') {
+                    finalMessage = `Lo siento, no pude obtener información de internet para "${query}". ${directive.cleaned}`;
+                    directive = null;
+                    break;
+                }
                 chatMessages.push({
                     role: "system",
                     content: `Resultados de busqueda web para "${query}": ${searchResults}`
@@ -926,6 +931,12 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
                 if (leftoverDirective) {
                     finalMessage = leftoverDirective.cleaned;
                 }
+            }
+
+            // Final cleanup to ensure no search directives are sent to chat
+            const finalDirective = this.extractSearchDirective(finalMessage);
+            if (finalDirective) {
+                finalMessage = finalDirective.cleaned;
             }
 
             if (!finalMessage) {
