@@ -11,6 +11,7 @@ class MediaOverlayServer {
         this.displayDurationMs = Number.isFinite(config.displayDurationMs) ? Number(config.displayDurationMs) : 12000;
         this.keepLastFrame = !!config.keepLastFrame;
         this.rewardIdMap = {};
+        this.rewardNameMap = {};
         this.server = null;
         this.clients = new Set();
         this.keepAliveInterval = null;
@@ -101,7 +102,12 @@ class MediaOverlayServer {
             this.rewardIdMap[rewardId] = normalizedAction;
         }
 
-        // Removed name-based mapping, using only ID-based mapping
+        const title = typeof entry.title === "string" && entry.title.trim()
+            ? entry.title.trim().toLowerCase()
+            : null;
+        if (title) {
+            this.rewardNameMap[title] = normalizedAction;
+        }
     }
 
     normalizeAction(action) {
@@ -347,6 +353,40 @@ class MediaOverlayServer {
         return true;
     }
 
+    triggerByTitle(title, userDisplayName = null) {
+        if (!this.enabled || !title) {
+            return false;
+        }
+        const action = this.rewardNameMap[title.toLowerCase()];
+        if (!action) {
+            return false;
+        }
+
+        const persist = action.persist || this.keepLastFrame;
+        const actionPayload = {
+            ...action,
+            persist
+        };
+
+        const payload = {
+            type: "media",
+            action: actionPayload,
+            context: {
+                rewardId: null,
+                rewardTitle: title,
+                userDisplayName,
+                userInput: "",
+                redeemedAt: new Date().toISOString()
+            },
+            keepVisible: persist,
+            timestamp: Date.now()
+        };
+
+        this.queue.push(payload);
+        this.processQueue();
+        return true;
+    }
+
     buildOverlayHtml() {
         return `<!DOCTYPE html>
 <html lang="en">
@@ -461,12 +501,11 @@ audio { display: none; }
             }
             audio.loop = !!action.loop;
             audio.muted = !!action.muted;
+            audio.addEventListener('loadedmetadata', () => {
+                const mediaDuration = audio.duration * 1000;
+                scheduleHide(mediaDuration, keepVisible);
+            });
             audio.play().catch(() => {});
-            audio.onended = () => {
-                if (!keepVisible) {
-                    reset();
-                }
-            };
         } else if (action.mediaType === 'image') {
             image.src = action.url;
             image.classList.remove('hidden');
@@ -488,20 +527,17 @@ audio { display: none; }
             video.setAttribute('playsinline', '');
             video.setAttribute('autoplay', '');
             video.classList.remove('hidden');
+            video.addEventListener('loadedmetadata', () => {
+                const mediaDuration = video.duration * 1000;
+                scheduleHide(mediaDuration, keepVisible);
+            });
             const playPromise = video.play();
             if (playPromise && typeof playPromise.catch === 'function') {
                 playPromise.catch((err) => {
                     console.warn('Failed to autoplay reward video:', err);
                 });
             }
-            video.onended = () => {
-                if (!keepVisible) {
-                    reset();
-                }
-            };
         }
-
-        // scheduleHide(duration, keepVisible); // Removed, now handled per type
     }
 
     const source = new EventSource('events');

@@ -653,6 +653,23 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
                 log("debug", `Vote for option ${option} by ${displayName}`);
             }
         }
+
+        // Auto-trigger rewards based on message content
+        const lowerMessage = trimmedMessage.toLowerCase();
+        let triggered = false;
+        for (const title of this.getAllTitles()) {
+            const titleWords = title.split(/\s+/);
+            if (titleWords.length > 3) {
+                for (const word of titleWords) {
+                    if (word && lowerMessage.includes(word)) {
+                        this.triggerMediaByTitle(title, displayName);
+                        triggered = true;
+                        break;
+                    }
+                }
+            }
+            if (triggered) break;
+        }
     }
 
 
@@ -1455,6 +1472,20 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             log("warn", `Web search failed: ${err.message}`);
             return 'Search failed.';
         }
+    }
+
+    getAllTitles() {
+        if (!this.mediaOverlay) {
+            return [];
+        }
+        return Object.keys(this.mediaOverlay.rewardNameMap);
+    }
+
+    triggerMediaByTitle(title, userDisplayName) {
+        if (!this.mediaOverlay) {
+            return false;
+        }
+        return this.mediaOverlay.triggerByTitle(title, userDisplayName);
     }
 }
 
