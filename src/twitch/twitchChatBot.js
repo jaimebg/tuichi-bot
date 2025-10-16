@@ -889,6 +889,23 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             let directive = this.extractSearchDirective(finalMessage);
             let hasNotifiedUser = false;
 
+            // If no search directive but question looks like it needs search, force it
+            const needsSearch = this.shouldPerformSearch(message);
+            if (!directive && needsSearch) {
+                log("debug", `Message appears to need search but no directive found. Forcing search for: ${message}`);
+                // Extract potential search query from the message itself
+                let potentialQuery = message;
+                // Try to make it more search-friendly by removing common words
+                potentialQuery = potentialQuery
+                    .replace(/@\w+/g, '') // Remove mentions
+                    .replace(/^(hey|hola|oye|dime|cuéntame|dame)/i, '')
+                    .trim();
+
+                if (potentialQuery.length > 2) {
+                    directive = { query: potentialQuery, cleaned: finalMessage };
+                }
+            }
+
             while (directive && searchAttempts < maxSearchAttempts) {
                 const query = directive.query;
                 if (!query) {
@@ -1315,7 +1332,18 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             ? "El espectador esta respondiendo directamente a tu ultimo mensaje."
             : "El espectador te esta mencionando en el chat.";
 
-        const systemContent = `${personaText}${contextText} Si necesitas información actual o hechos del internet, responde SOLO con BUSCAR: tu consulta y te proporcionaré resultados. ${limitsLine}`;
+        // Enhanced search instructions
+        const searchInstructions = `Si la pregunta requiere información actual (noticias, resultados de partidos, clima hoy, eventos recientes) o datos específicos de internet que no conozcas, DEBES responder SOLO con BUSCAR: tu consulta exacta para que obtenga los resultados. 
+        
+        Ejemplos de cuándo BUSCAR:
+        - "¿Qué tiempo hace en Madrid hoy?" → BUSCAR: clima Madrid hoy
+        - "¿Cuál fue el resultado del partido de hoy?" → BUSCAR: resultado partido [equipo] hoy
+        - "¿A qué hora es el concierto de [artista]?" → BUSCAR: concierto [artista] horario
+        - "¿Quién ganó la liga este año?" → BUSCAR: ganador liga [año]
+        
+        NO busques para: opiniones, conversación, chistes, consejos generales, cosas que sepas de tu conocimiento.`;
+
+        const systemContent = `${personaText}${contextText}\n${searchInstructions} ${limitsLine}`;
 
         // Get traditional conversation history as fallback
         const history = this.getConversationHistory(userKey);
@@ -1376,6 +1404,61 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         }
 
         return cleaned;
+    }
+
+    shouldPerformSearch(message) {
+        const lowerMsg = message.toLowerCase();
+
+        // Keywords indicating need for current information
+        const searchKeywords = [
+            // Time-based queries
+            'hoy', 'ahora', 'ahorita', 'este fin de semana', 'próximo', 'mañana', 'pasado', 'actual',
+            'reciente', 'hace poco', 'últimas noticias', 'última hora', 'tendencia',
+
+            // Sports/Events
+            'partido', 'resultado', 'gol', 'goles', 'marcador', 'ganador', 'perdedor', 'campeonato',
+            'liga', 'copa', 'torneo', 'juego', 'match', 'equipo', 'jugador', 'entrenador',
+            'semifinal', 'final', 'clasificación', 'tabla',
+
+            // Weather/Climate
+            'tiempo', 'meteorología', 'clima', 'lluvia', 'nieve', 'tormenta', 'temperatura',
+            'pronóstico', 'humedad', 'viento', 'grados',
+
+            // News/Events
+            'noticia', 'suceso', 'acontecimiento', 'evento', 'ceremonia', 'conferencia', 'presentación',
+            'lanzamiento', 'estreno', 'début', 'premiación', 'gala',
+
+            // Places/Locations
+            'dónde está', 'ubicación de', 'horarios de', 'precio de', 'costo de', 'cuánto cuesta',
+            'distancia', 'dirección', 'teléfono', 'contacto', 'gmail', 'email',
+
+            // Statistics/Data
+            'cuánto', 'cuántos', 'porcentaje', 'estadística', 'datos', 'cifra', 'número',
+            'población', 'casos', 'muertes', 'infectados', 'récord',
+
+            // Products/Tech
+            'nuevo', 'lanzamiento', 'característica', 'función', 'precio', 'especificación',
+            'modelo', 'versión', 'actualización', 'disponible', 'comprar',
+
+            // General search indicators
+            'quién es', 'qué es', 'dónde', 'cuándo', 'búsca', 'encuentra', 'dame info',
+            'cuéntame', 'explica', 'información sobre', 'datos de', 'sobre',
+            'cómo', 'en qué', 'de qué'
+        ];
+
+        // Check if message contains any search keywords
+        for (const keyword of searchKeywords) {
+            if (lowerMsg.includes(keyword)) {
+                return true;
+            }
+        }
+
+        // Check for question marks (common in queries)
+        if (lowerMsg.includes('?')) {
+            return true;
+        }
+
+        return false;
     }
 
     extractSearchDirective(text) {
