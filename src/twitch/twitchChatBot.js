@@ -898,11 +898,17 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
                 // Try to make it more search-friendly by removing common words
                 potentialQuery = potentialQuery
                     .replace(/@\w+/g, '') // Remove mentions
-                    .replace(/^(hey|hola|oye|dime|cuéntame|dame)/i, '')
+                    .replace(/^(hey|hola|oye|dime|cuéntame|dame)\s+/i, '')
                     .trim();
 
-                if (potentialQuery.length > 2) {
-                    directive = { query: potentialQuery, cleaned: finalMessage };
+                // Clean the query using the same method as for directives
+                const cleanedQuery = this.cleanSearchQuery(potentialQuery);
+
+                if (cleanedQuery && cleanedQuery.length > 2) {
+                    log("debug", `Creating forced search directive with query: "${cleanedQuery}"`);
+                    directive = { query: cleanedQuery, cleaned: finalMessage };
+                } else {
+                    log("debug", `Query too short after cleaning: "${cleanedQuery}". Skipping forced search.`);
                 }
             }
 
@@ -917,13 +923,24 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
                 // Notify user that a search is being performed
                 if (!hasNotifiedUser) {
                     log("debug", `Performing web search for: ${query}`);
-                    await this.sendMessage(`Buscando información sobre "${query}"...`, replyToId);
+                    try {
+                        await this.sendMessage(`Buscando información sobre "${query}"...`, replyToId);
+                    } catch (err) {
+                        log("warn", `Failed to send search notification: ${err.message}`);
+                    }
                     hasNotifiedUser = true;
                     // Small delay to ensure notification is sent before search
                     await new Promise(resolve => setTimeout(resolve, 500));
                 }
 
-                const searchResults = await this.searchWeb(query);
+                let searchResults;
+                try {
+                    searchResults = await this.searchWeb(query);
+                } catch (err) {
+                    log("warn", `Exception during searchWeb: ${err.message}`);
+                    searchResults = 'Search failed.';
+                }
+
                 if (searchResults === 'Search failed.' || searchResults === 'Web search not configured.') {
                     // If search fails, just use the cleaned response without the search directive
                     log("warn", `Search failed for query "${query}". Using fallback response.`);
@@ -961,6 +978,7 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
                 break;
             }
 
+
             if (directive) {
                 finalMessage = directive.cleaned;
             } else {
@@ -976,11 +994,13 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
                 finalMessage = finalDirective.cleaned;
             }
 
-            if (!finalMessage) {
-                log("debug", `Groq returned empty response for ${displayName} after search handling.`);
-                return;
+            // Ensure finalMessage is not empty - if it is, use a fallback
+            if (!finalMessage || finalMessage.trim().length === 0) {
+                log("warn", `finalMessage is empty after processing. Setting fallback response.`);
+                finalMessage = "lo siento, tuve un problema para procesar tu pregunta";
             }
 
+            log("debug", `Final message to send: "${finalMessage}"`);
             await this.sendMessage(finalMessage, replyToId);
 
             // Update both old and new conversation tracking
@@ -1390,11 +1410,18 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
     cleanSearchQuery(rawQuery) {
         if (!rawQuery) return "";
 
+        let cleaned = rawQuery;
+
         // Remove emotes and personality markers (xdd, xd, oprahS, Sisi, GAYJAM, PauseCat, xpp, etc.)
-        let cleaned = rawQuery
-            .replace(/\b(xdd|xd|oprahS|Sisi|GAYJAM|PauseCat|xpp|guapa)\b/gi, '')
-            // Remove special characters and extra whitespace
-            .replace(/[^\w\s\-áéíóúñü]/g, ' ')
+        cleaned = cleaned.replace(/\b(xdd|xd|oprahS|Sisi|GAYJAM|PauseCat|xpp|guapa)\b/gi, '');
+
+        // Remove common filler words at the start
+        cleaned = cleaned.replace(/^(hey|hola|oye|dime|cuéntame|dame|busca|encuentra)\s+/i, '');
+
+        // Keep alphanumeric, spaces, hyphens, and accented characters
+        // But remove excessive special characters that break search
+        cleaned = cleaned
+            .replace(/[^\w\s\-áéíóúñüÁÉÍÓÚÑÜ]/g, '')
             .replace(/\s+/g, ' ')
             .trim();
 
