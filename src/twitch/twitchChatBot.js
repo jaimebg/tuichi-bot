@@ -1348,6 +1348,25 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         this.conversationHistory.set(userKey, history);
     }
 
+    cleanSearchQuery(rawQuery) {
+        if (!rawQuery) return "";
+
+        // Remove emotes and personality markers (xdd, xd, oprahS, Sisi, GAYJAM, PauseCat, xpp, etc.)
+        let cleaned = rawQuery
+            .replace(/\b(xdd|xd|oprahS|Sisi|GAYJAM|PauseCat|xpp|guapa)\b/gi, '')
+            // Remove special characters and extra whitespace
+            .replace(/[^\w\s\-áéíóúñü]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        // If query is empty or too short after cleaning, return empty
+        if (cleaned.length < 2) {
+            return "";
+        }
+
+        return cleaned;
+    }
+
     extractSearchDirective(text) {
         if (!text) {
             return null;
@@ -1362,9 +1381,10 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         for (const pattern of patterns) {
             const match = text.match(pattern);
             if (match) {
-                const query = (match[1] || "").trim();
+                const rawQuery = (match[1] || "").trim();
+                const cleanedQuery = this.cleanSearchQuery(rawQuery);
                 const cleaned = text.replace(match[0], " ").replace(/\s+/g, " ").trim();
-                return { query, cleaned };
+                return { query: cleanedQuery, cleaned };
             }
         }
         return null;
