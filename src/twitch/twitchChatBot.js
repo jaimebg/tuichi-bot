@@ -929,17 +929,17 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
                     if (retryMessage) {
                         aiReply = retryAiReply;
                         finalMessage = retryMessage;
-                        directive = this.extractSearchDirective(finalMessage);
-                        if (directive) {
-                            log("debug", "New search directive detected after results. Skipping additional searches to prevent rate limiting.");
-                            directive = null; // Don't retry more searches
-                        }
-                        continue;
+                        log("debug", "Groq successfully processed search results.");
+                    } else {
+                        log("warn", "Groq returned empty response after search results. Using search results as fallback.");
+                        finalMessage = `Resultados de búsqueda para "${query}": ${searchResults}`;
                     }
                 } catch (err) {
                     log("warn", `Groq failed after search results: ${err.message}. Using search results as fallback.`);
                     finalMessage = `Resultados de búsqueda para "${query}": ${searchResults}`;
                 }
+
+                // Exit the loop after processing search results
                 directive = null;
                 break;
             }
