@@ -23,7 +23,6 @@ class TwitchChatBot {
         lore,
         aliases,
         groqConfig,
-        braveConfig,
         singleWordEchoChance,
         singleWordEchoDelayMs,
         ai,
@@ -50,7 +49,6 @@ class TwitchChatBot {
         this.lore = lore || "";
         this.aliases = aliases || {};
         this.groqConfig = groqConfig;
-        this.braveConfig = braveConfig;
         this.adventureConfig = adventure;
         this.channelPointsConfig = channelPoints || {};
         this.mediaOverlayConfig = mediaOverlay || {};
@@ -1601,56 +1599,7 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
     }
 
     async searchWeb(query, maxRetries = 2) {
-        if (!this.braveConfig) {
-            return "Web search not configured.";
-        }
-        const { baseUrl, apiKey } = this.braveConfig;
-
-        for (let attempt = 0; attempt < maxRetries; attempt++) {
-            try {
-                const response = await fetch(`${baseUrl}?q=${encodeURIComponent(query)}&count=2`, {
-                    headers: {
-                        'X-Subscription-Token': apiKey,
-                        'Accept': 'application/json'
-                    },
-                    timeout: 3000
-                });
-
-                // Handle rate limiting (429) with exponential backoff
-                if (response.status === 429) {
-                    if (attempt < maxRetries - 1) {
-                        const delayMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
-                        log("debug", `Brave API rate limited (429). Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`);
-                        await new Promise(resolve => setTimeout(resolve, delayMs));
-                        continue;
-                    }
-                    throw new Error(`Brave API rate limited (429). Max retries exceeded.`);
-                }
-
-                if (!response.ok) {
-                    throw new Error(`Brave API returned ${response.status}`);
-                }
-
-                const data = await response.json();
-                const results = data.web?.results?.slice(0, 2).map(r => {
-                    const desc = (r.description || r.url || '').substring(0, 100);
-                    return `${r.title}: ${desc}`;
-                }).join('\n') || 'No results found.';
-                return results;
-            } catch (err) {
-                const isLastAttempt = attempt === maxRetries - 1;
-                const msgDetail = isLastAttempt ? " (final attempt)" : ` (attempt ${attempt + 1}/${maxRetries})`;
-                log("warn", `Web search failed: ${err.message}${msgDetail}`);
-
-                if (!isLastAttempt) {
-                    // For transient errors, wait before retrying
-                    const delayMs = 500 * Math.pow(2, attempt);
-                    await new Promise(resolve => setTimeout(resolve, delayMs));
-                }
-            }
-        }
-
-        return 'Search failed.';
+        return "Search functionality disabled.";
     }
 
     getAllTitles() {
