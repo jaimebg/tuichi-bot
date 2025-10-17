@@ -6,6 +6,7 @@ const DataPersistence = require("../persistence/dataPersistence");
 const UserMemory = require("../intelligence/userMemory");
 const RecentChatTracker = require("../intelligence/recentChatTracker");
 const ConversationThreads = require("../intelligence/conversationThreads");
+const MessageLogger = require("../intelligence/messageLogger");
 const MediaOverlayServer = require("../media/mediaOverlayServer");
 const ChannelPointsWatcher = require("./channelPointsWatcher");
 const { IGNORED_USERS } = require("./constants");
@@ -83,6 +84,7 @@ class TwitchChatBot {
         this.userMemory = new UserMemory(intelligence?.userMemoryLimit, intelligence?.engagementTrackingDays);
         this.recentChat = new RecentChatTracker(intelligence?.recentChatLimit, intelligence?.contextWindowMinutes);
         this.conversationThreads = new ConversationThreads(intelligence?.conversationThreads);
+        this.messageLogger = new MessageLogger(intelligence?.messageLogMaxSize ?? 5000, intelligence?.messageLogCleanupMs ?? 60000);
         this.streamStartTime = Date.now();
         this.lastDataSave = 0;
 
@@ -357,7 +359,8 @@ class TwitchChatBot {
                 this.streamStartTime = new Date(streamInfo.started_at).getTime();
 
                 if (!wasOnline) {
-                    // Stream just went online
+                    // Stream just went online - start a new session
+                    this.messageLogger.reset();
                     const startMessage = await this.generateStreamStartMessage(streamInfo.title, this.currentGame);
                     await this.sendMessage(startMessage);
                 } else if (previousGame && previousGame !== this.currentGame) {
@@ -370,6 +373,12 @@ class TwitchChatBot {
                 if (wasOnline) {
                     // Stream went offline
                     await this.sendMessage("El stream se ha desconectado. Venga guapa.");
+
+                    // Send top 10 users message
+                    const topUsersMsg = this.getTopUsersMessage(10);
+                    if (topUsersMsg) {
+                        await this.sendMessage(topUsersMsg);
+                    }
                 }
             }
         } catch (err) {
@@ -455,6 +464,24 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             log("warn", `Failed to generate category change message: ${err.message}`);
             return `¡Cambio de categoría! Ahora estamos jugando ${newGame} (antes: ${previousGame}).`;
         }
+    }
+
+    /**
+     * Generate a message with the top users who participated during the stream.
+     * Returns a formatted message mentioning the top 10 users.
+     */
+    getTopUsersMessage(limit = 10) {
+        const topUsers = this.messageLogger.getTopUsers(limit);
+
+        if (topUsers.length === 0) {
+            return null;
+        }
+
+        const userList = topUsers
+            .map(user => `@${user.displayName} (${user.messageCount} mensajes)`)
+            .join(', ');
+
+        return `Top ${topUsers.length} ridículas más activas hoy: ${userList}`;
     }
 
     async getStreamInfo() {
@@ -624,6 +651,7 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         // Track all messages for intelligence
         this.recentChat.addMessage(userKey, displayName, trimmedMessage, timestamp);
         this.userMemory.updateEngagement(userKey, trimmedMessage, timestamp);
+        this.messageLogger.logMessage(userKey, displayName);
 
         // Extract personality traits and themes
         this.extractIntelligence(userKey, trimmedMessage);
