@@ -1409,14 +1409,10 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
 
         let cleaned = rawQuery;
 
-        // Remove emotes and personality markers (xdd, xd, oprahS, Sisi, GAYJAM, PauseCat, xpp, etc.)
-        cleaned = cleaned.replace(/\b(xdd|xd|oprahS|Sisi|GAYJAM|PauseCat|xpp|guapa)\b/gi, '');
-
         // Remove common filler words at the start
         cleaned = cleaned.replace(/^(hey|hola|oye|dime|cuéntame|dame|busca|encuentra)\s+/i, '');
 
         // Keep alphanumeric, spaces, hyphens, and accented characters
-        // But remove excessive special characters that break search
         cleaned = cleaned
             .replace(/[^\w\s\-áéíóúñüÁÉÍÓÚÑÜ]/g, '')
             .replace(/\s+/g, ' ')
@@ -1436,38 +1432,28 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         // Keywords indicating need for current information
         const searchKeywords = [
             // Time-based queries
-            'hoy', 'ahora', 'ahorita', 'este fin de semana', 'próximo', 'mañana', 'pasado', 'actual',
-            'reciente', 'hace poco', 'últimas noticias', 'última hora', 'tendencia',
+            'hoy', 'ahora', 'este fin de semana', 'próximo', 'proximo', 'mañana', 'actual', 'reciente',
 
             // Sports/Events
-            'partido', 'resultado', 'gol', 'goles', 'marcador', 'ganador', 'perdedor', 'campeonato',
-            'liga', 'copa', 'torneo', 'juego', 'match', 'equipo', 'jugador', 'entrenador',
-            'semifinal', 'final', 'clasificación', 'tabla',
+            'partido', 'resultado', 'gol', 'marcador', 'campeonato', 'liga', 'torneo',
 
-            // Weather/Climate
-            'tiempo', 'meteorología', 'clima', 'lluvia', 'nieve', 'tormenta', 'temperatura',
-            'pronóstico', 'humedad', 'viento', 'grados',
+            // Weather
+            'tiempo', 'clima', 'lluvia', 'temperatura', 'pronóstico', 'pronostico',
 
-            // News/Events
-            'noticia', 'suceso', 'acontecimiento', 'evento', 'ceremonia', 'conferencia', 'presentación',
-            'lanzamiento', 'estreno', 'début', 'premiación', 'gala',
+            // News
+            'noticia', 'evento', 'lanzamiento', 'estreno',
 
-            // Places/Locations
-            'dónde está', 'ubicación de', 'horarios de', 'precio de', 'costo de', 'cuánto cuesta',
-            'distancia', 'dirección', 'teléfono', 'contacto', 'gmail', 'email',
+            // Places
+            'dónde está', 'donde esta', 'ubicación', 'ubicacion', 'horarios', 'precio', 'cuánto cuesta', 'cuanto cuesta',
 
-            // Statistics/Data
-            'cuánto', 'cuántos', 'porcentaje', 'estadística', 'datos', 'cifra', 'número',
-            'población', 'casos', 'muertes', 'infectados', 'récord',
+            // Statistics
+            'cuánto', 'cuanto', 'cuántos', 'cuantos', 'estadística', 'estadistica', 'datos', 'población', 'poblacion',
 
-            // Products/Tech
-            'nuevo', 'lanzamiento', 'característica', 'función', 'precio', 'especificación',
-            'modelo', 'versión', 'actualización', 'disponible', 'comprar',
+            // Products
+            'nuevo', 'precio', 'especificación', 'especificacion', 'modelo',
 
-            // General search indicators
-            'quién es', 'qué es', 'dónde', 'cuándo', 'búsca', 'encuentra', 'dame info',
-            'cuéntame', 'explica', 'información sobre', 'datos de', 'sobre',
-            'cómo', 'en qué', 'de qué'
+            // General
+            'quién es', 'quien es', 'qué es', 'que es', 'dónde', 'donde', 'cuándo', 'cuando', 'búsca', 'busca', 'información sobre', 'informacion sobre', 'sobre', 'cómo', 'como'
         ];
 
         // Check if message contains any search keywords
@@ -1614,7 +1600,7 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         throw new Error(`All Groq models failed (${summary || "no detail"})`);
     }
 
-    async searchWeb(query, maxRetries = 3) {
+    async searchWeb(query, maxRetries = 2) {
         if (!this.braveConfig) {
             return "Web search not configured.";
         }
@@ -1622,12 +1608,12 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
 
         for (let attempt = 0; attempt < maxRetries; attempt++) {
             try {
-                const response = await fetch(`${baseUrl}?q=${encodeURIComponent(query)}&count=3`, {
+                const response = await fetch(`${baseUrl}?q=${encodeURIComponent(query)}&count=2`, {
                     headers: {
                         'X-Subscription-Token': apiKey,
                         'Accept': 'application/json'
                     },
-                    timeout: 5000
+                    timeout: 3000
                 });
 
                 // Handle rate limiting (429) with exponential backoff
@@ -1646,8 +1632,8 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
                 }
 
                 const data = await response.json();
-                const results = data.web?.results?.slice(0, 3).map(r => {
-                    const desc = (r.description || r.url || '').substring(0, 150);
+                const results = data.web?.results?.slice(0, 2).map(r => {
+                    const desc = (r.description || r.url || '').substring(0, 100);
                     return `${r.title}: ${desc}`;
                 }).join('\n') || 'No results found.';
                 return results;
