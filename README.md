@@ -6,7 +6,7 @@ A sophisticated Node.js Twitch chat bot for the `jaimevarecto` channel, featurin
 
 ### Core Functionality
 - **Smart Greetings**: Welcomes new viewers with customizable messages, skipping those who chat first
-- **AI Chat Responses**: Responds to @mentions and replies using Groq AI with user memory, context, and web search capabilities
+- **AI Chat Responses**: Responds to @mentions and replies using Groq AI with user memory and context
 - **Interactive Adventures**: Start story-driven adventures with `!aventura [theme] [rounds]` where viewers vote on choices
 - **Single Word Echo**: Randomly repeats single-word messages for engagement
 - **User Memory**: Tracks personality traits, conversation themes, and engagement patterns
@@ -88,7 +88,6 @@ Populate the fields in `CONFIG.twitch` and `CONFIG.ai` with secrets from the fol
 - **Twitch API App Credentials (`clientId`, `clientSecret`)** – Create an application at https://dev.twitch.tv/console/apps. Download the client secret once and store it securely.
 - **Twitch API Access/Refresh Tokens (`apiToken`, `refreshToken`)** – Use the OAuth Authorization Code flow for your Twitch app to obtain app access tokens with the required scopes (`channel:read:redemptions` for EventSub channel points). Save the refresh token so the bot can renew automatically.
 - **Groq API Key (`CONFIG.ai.groq.apiKey`)** – Create a key from the Groq console (https://console.groq.com/keys). Required for AI responses.
-- **Brave Search Subscription Token (`CONFIG.ai.brave.apiKey`)** – Generate at https://brave.com/search/api/ if you want web search augmentation (optional).
 
 You can load these secrets from environment variables or a private JSON/YAML file before instantiating `TwitchChatBot` to avoid hardcoding them in source control.
 
@@ -97,12 +96,11 @@ You can load these secrets from environment variables or a private JSON/YAML fil
 - Node.js 16+
 - Twitch bot account with IRC/chat permissions
 - Groq API key (required for AI replies)
-- Brave Search API key (optional, only needed for `[SEARCH: …]` follow-ups)
 
 ## Troubleshooting
 
 - **Bot exits immediately** – Double-check that `CONFIG.twitch.*` tokens are valid and the bot account has channel access.
-- **No AI replies** – Ensure Groq credentials are set, the bot has web access, and the chosen model is available.
+- **No AI replies** – Ensure Groq credentials are set and the chosen model is available.
 - **Overlay not showing** – Open `http://localhost:8910/overlay` in OBS/browser and verify rewards are mapped in `mediaRewards.json`.
 
 Feel free to adapt the module tree or swap out `main.js` with a custom launcher; the `TwitchChatBot` class only needs a valid config object to run.
