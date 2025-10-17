@@ -386,7 +386,10 @@ class TwitchChatBot {
         }
 
         // Gather context from user memories (no recent chat for stream start)
-        const activeUsers = Array.from(this.userMemory.memories.keys()).slice(0, 10).join(', ');
+        const activeUsers = Array.from(this.userMemory.memories.keys())
+            .filter(user => !this.greetingIgnoreLogins.has(user.toLowerCase()))
+            .slice(0, 10)
+            .join(', ');
         const prompt = `Genera un mensaje de bienvenida detallado y atractivo para el inicio de un stream de Twitch. Título del stream: "${title}". Categoría: "${game}". 
 
 Información disponible:
@@ -394,23 +397,18 @@ Información disponible:
 - Categoría del stream: "${game}"
 - Usuarios activos recientes: ${activeUsers || 'Ninguno disponible'}
 
-El mensaje debe incluir exactamente esta frase: "JaimeVaRecto está ahora en directo ${title} ${game}". 
-Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada vez. Menciona algunos usuarios activos si es apropiado. Responde solo con el mensaje, sin comillas ni explicaciones adicionales.`;
+El mensaje debe incluir el titulo del directo: ${title} y la categoría: ${game}". 
+Haz el mensaje largo y detallado (hasta 400 caracteres), entusiasta, único cada vez. Menciona algunos usuarios activos si es apropiado. Responde solo con el mensaje, sin comillas ni explicaciones adicionales.`;
 
         const chatMessages = [
-            { role: "system", content: `Eres un creador de contenido de Twitch entusiasta y creativo. Tu personalidad es: ${this.persona}. Genera mensajes largos, detallados y atractivos que conecten con la comunidad del stream.` },
+            { role: "system", content: `Eres un creador de contenido de Twitch entusiasta y creativo. Tu personalidad es: ${this.persona}.` },
             { role: "user", content: prompt }
         ];
 
         try {
             const aiReply = await this.fetchGroqResponse(chatMessages);
-            const finalMessage = clampResponseLength(aiReply, 200);
-            if (finalMessage && finalMessage.includes(`JaimeVaRecto está ahora en directo ${title} ${game}`)) {
-                return finalMessage;
-            } else {
-                // Fallback if AI doesn't include the required phrase
-                return `¡Bienvenidos de vuelta! JaimeVaRecto está ahora en directo ${title} ${game}. ¡Vamos a continuar la diversión donde la dejamos!`;
-            }
+            const finalMessage = clampResponseLength(aiReply, 400);
+            return finalMessage;
         } catch (err) {
             log("warn", `Failed to generate stream start message: ${err.message}`);
             return `JaimeVaRecto está ahora en directo ${title} ${game}`;
@@ -655,23 +653,22 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             }
         }
 
-        // Auto-trigger rewards based on message content
+        // Auto-trigger media based on message content
         const lowerMessage = trimmedMessage.toLowerCase();
-        const matchingTitles = [];
-        for (const title of this.getAllTitles()) {
-            const titleWords = title.split(/\s+/);
-            if (titleWords.length > 3) {
-                for (const word of titleWords) {
-                    if (word && lowerMessage.includes(word)) {
-                        matchingTitles.push(title);
-                        break;
-                    }
+        const messageWords = lowerMessage.split(/\s+/).filter(word => word.length > 3);
+        const matchingTitles = new Set();
+        for (const word of messageWords) {
+            for (const title of this.getAllTitles()) {
+                const reward = this.mediaOverlay.rewardNameMap[title];
+                if (reward && (reward.type === "video" || reward.type === "audio") && title.toLowerCase().includes(word)) {
+                    matchingTitles.add(title);
                 }
             }
         }
-        if (matchingTitles.length > 0 && Math.random() < this.autoTriggerChance) {
-            const randomIndex = Math.floor(Math.random() * matchingTitles.length);
-            const selectedTitle = matchingTitles[randomIndex];
+        const matchingTitlesArray = Array.from(matchingTitles);
+        if (matchingTitlesArray.length > 0 && Math.random() < this.autoTriggerChance) {
+            const randomIndex = Math.floor(Math.random() * matchingTitlesArray.length);
+            const selectedTitle = matchingTitlesArray[randomIndex];
             this.triggerMediaByTitle(selectedTitle, displayName);
         }
     }
