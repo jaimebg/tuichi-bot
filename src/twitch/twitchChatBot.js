@@ -879,115 +879,7 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
                 return;
             }
 
-            const maxSearchAttempts = 1;
-            let searchAttempts = 0;
-            let directive = this.extractSearchDirective(finalMessage);
-            let hasNotifiedUser = false;
 
-            // If no search directive but question looks like it needs search, force it
-            const needsSearch = this.shouldPerformSearch(message);
-            if (!directive && needsSearch) {
-                log("debug", `Message appears to need search but no directive found. Forcing search for: ${message}`);
-                // Extract potential search query from the message itself
-                let potentialQuery = message;
-                // Try to make it more search-friendly by removing common words
-                potentialQuery = potentialQuery
-                    .replace(/@\w+/g, '') // Remove mentions
-                    .replace(/^(hey|hola|oye|dime|cuéntame|dame)\s+/i, '')
-                    .trim();
-
-                // Clean the query using the same method as for directives
-                const cleanedQuery = this.cleanSearchQuery(potentialQuery);
-
-                if (cleanedQuery && cleanedQuery.length > 2) {
-                    log("debug", `Creating forced search directive with query: "${cleanedQuery}"`);
-                    directive = { query: cleanedQuery, cleaned: finalMessage };
-                } else {
-                    log("debug", `Query too short after cleaning: "${cleanedQuery}". Skipping forced search.`);
-                }
-            }
-
-            while (directive && searchAttempts < maxSearchAttempts) {
-                const query = directive.query;
-                if (!query) {
-                    log("debug", "Search directive detected without query. Removing directive.");
-                    finalMessage = directive.cleaned;
-                    break;
-                }
-
-                // Notify user that a search is being performed
-                if (!hasNotifiedUser) {
-                    log("debug", `Performing web search for: ${query}`);
-                    try {
-                        await this.sendMessage(`Buscando información sobre "${query}"...`, replyToId);
-                    } catch (err) {
-                        log("warn", `Failed to send search notification: ${err.message}`);
-                    }
-                    hasNotifiedUser = true;
-                    // Small delay to ensure notification is sent before search
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                }
-
-                let searchResults;
-                try {
-                    searchResults = await this.searchWeb(query);
-                } catch (err) {
-                    log("warn", `Exception during searchWeb: ${err.message}`);
-                    searchResults = 'Search failed.';
-                }
-
-                if (searchResults === 'Search failed.' || searchResults === 'Web search not configured.') {
-                    // If search fails, just use the cleaned response without the search directive
-                    log("warn", `Search failed for query "${query}". Using fallback response.`);
-                    finalMessage = directive.cleaned;
-                    directive = null;
-                    break;
-                }
-
-                log("debug", `Search successful for "${query}". Calling Groq with results.`);
-                chatMessages.push({
-                    role: "system",
-                    content: `Resultados de busqueda web para "${query}": ${searchResults}`
-                });
-
-                searchAttempts += 1;
-
-                try {
-                    const retryAiReply = await this.fetchGroqResponse(chatMessages);
-                    const retryMessage = clampResponseLength(retryAiReply, this.aiMaxChars);
-                    if (retryMessage) {
-                        aiReply = retryAiReply;
-                        finalMessage = retryMessage;
-                        log("debug", "Groq successfully processed search results.");
-                    } else {
-                        log("warn", "Groq returned empty response after search results. Using search results as fallback.");
-                        finalMessage = `Resultados de búsqueda para "${query}": ${searchResults}`;
-                    }
-                } catch (err) {
-                    log("warn", `Groq failed after search results: ${err.message}. Using search results as fallback.`);
-                    finalMessage = `Resultados de búsqueda para "${query}": ${searchResults}`;
-                }
-
-                // Exit the loop after processing search results
-                directive = null;
-                break;
-            }
-
-
-            if (directive) {
-                finalMessage = directive.cleaned;
-            } else {
-                const leftoverDirective = this.extractSearchDirective(finalMessage);
-                if (leftoverDirective) {
-                    finalMessage = leftoverDirective.cleaned;
-                }
-            }
-
-            // Final cleanup to ensure no search directives are sent to chat
-            const finalDirective = this.extractSearchDirective(finalMessage);
-            if (finalDirective) {
-                finalMessage = finalDirective.cleaned;
-            }
 
             // Ensure finalMessage is not empty - if it is, use a fallback
             if (!finalMessage || finalMessage.trim().length === 0) {
@@ -1402,95 +1294,11 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         this.conversationHistory.set(userKey, history);
     }
 
-    cleanSearchQuery(rawQuery) {
-        if (!rawQuery) return "";
 
-        let cleaned = rawQuery;
 
-        // Remove common filler words at the start
-        cleaned = cleaned.replace(/^(hey|hola|oye|dime|cuéntame|dame|busca|encuentra)\s+/i, '');
 
-        // Keep alphanumeric, spaces, hyphens, and accented characters
-        cleaned = cleaned
-            .replace(/[^\w\s\-áéíóúñüÁÉÍÓÚÑÜ]/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
 
-        // If query is empty or too short after cleaning, return empty
-        if (cleaned.length < 2) {
-            return "";
-        }
 
-        return cleaned;
-    }
-
-    shouldPerformSearch(message) {
-        const lowerMsg = message.toLowerCase();
-
-        // Keywords indicating need for current information
-        const searchKeywords = [
-            // Time-based queries
-            'hoy', 'ahora', 'este fin de semana', 'próximo', 'proximo', 'mañana', 'actual', 'reciente',
-
-            // Sports/Events
-            'partido', 'resultado', 'gol', 'marcador', 'campeonato', 'liga', 'torneo',
-
-            // Weather
-            'tiempo', 'clima', 'lluvia', 'temperatura', 'pronóstico', 'pronostico',
-
-            // News
-            'noticia', 'evento', 'lanzamiento', 'estreno',
-
-            // Places
-            'dónde está', 'donde esta', 'ubicación', 'ubicacion', 'horarios', 'precio', 'cuánto cuesta', 'cuanto cuesta',
-
-            // Statistics
-            'cuánto', 'cuanto', 'cuántos', 'cuantos', 'estadística', 'estadistica', 'datos', 'población', 'poblacion',
-
-            // Products
-            'nuevo', 'precio', 'especificación', 'especificacion', 'modelo',
-
-            // General
-            'quién es', 'quien es', 'qué es', 'que es', 'dónde', 'donde', 'cuándo', 'cuando', 'búsca', 'busca', 'información sobre', 'informacion sobre', 'sobre', 'cómo', 'como'
-        ];
-
-        // Check if message contains any search keywords
-        for (const keyword of searchKeywords) {
-            if (lowerMsg.includes(keyword)) {
-                return true;
-            }
-        }
-
-        // Check for question marks (common in queries)
-        if (lowerMsg.includes('?')) {
-            return true;
-        }
-
-        return false;
-    }
-
-    extractSearchDirective(text) {
-        if (!text) {
-            return null;
-        }
-        const patterns = [
-            /\[SEARCH:\s*([^\]\r\n]+?)\s*\]/i,
-            /\bSEARCH\s*:?\s*([^\r\n]+)?/i,
-            /\bBUSCAR\s*:?\s*([^\r\n]+)?/i,
-            /\bSEARCH[_\s]*NEEDED\b\s*[:\-]?\s*([^\r\n]+)?/i,
-            /\bNEEDS[_\s]*SEARCH\b\s*[:\-]?\s*([^\r\n]+)?/i
-        ];
-        for (const pattern of patterns) {
-            const match = text.match(pattern);
-            if (match) {
-                const rawQuery = (match[1] || "").trim();
-                const cleanedQuery = this.cleanSearchQuery(rawQuery);
-                const cleaned = text.replace(match[0], " ").replace(/\s+/g, " ").trim();
-                return { query: cleanedQuery, cleaned };
-            }
-        }
-        return null;
-    }
 
     async sendMessage(message, replyToId) {
         const text = normalizeWhitespace(message);
@@ -1598,9 +1406,7 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         throw new Error(`All Groq models failed (${summary || "no detail"})`);
     }
 
-    async searchWeb(query, maxRetries = 2) {
-        return "Search functionality disabled.";
-    }
+
 
     getAllTitles() {
         if (!this.mediaOverlay) {

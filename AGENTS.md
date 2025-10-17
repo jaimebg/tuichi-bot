@@ -12,7 +12,7 @@
 ## Static Content & Secrets
 - All editable text/JSON assets (greetings, persona, lore, aliases, reward map) now live in `resources/`. Update `main.js` if you introduce new files so agents use `RESOURCES_DIR`.
 - Runtime state is persisted automatically to `data/` (created on demand). Never hardcode defaults into `src/intelligence`—they expect serialised Maps/Sets via the persistence helpers.
-- Replace the placeholder Twitch/Groq/Brave secrets in `main.js` before shipping. Prefer reading environment variables inside `CONFIG` so credentials stay out of version control.
+- Replace the placeholder Twitch/Groq secrets in `main.js` before shipping. Prefer reading environment variables inside `CONFIG` so credentials stay out of version control.
 
 ## Working Patterns
 - When adding new bot features, extend `TwitchChatBot` methods and wire additional helpers via its constructor; avoid requiring modules directly from `main.js`.
@@ -25,7 +25,7 @@
 - If persistence is enabled, ensure the `data/` folder is writable to avoid silent downgrades (the persistence module logs a warning and disables itself otherwise).
 
 ## External Integrations
-- The bot consumes Twitch IRC via `tmi.js`, Twitch EventSub WebSockets via `ws`, Groq Chat Completions (OpenAI-compatible schema), and Brave Search. Respect the existing error-handling pattern: capture errors, log via `log("warn" | "error", ...)`, and continue gracefully.
+- The bot consumes Twitch IRC via `tmi.js`, Twitch EventSub WebSockets via `ws`, and Groq Chat Completions (OpenAI-compatible schema). Respect the existing error-handling pattern: capture errors, log via `log("warn" | "error", ...)`, and continue gracefully.
 - The overlay server listens on `CONFIG.mediaOverlay.port` (default 8910). Remember to update both the config and `README.md` if you change host/port defaults so streamers can adjust OBS/browser sources.
 
 Please review these notes after significant architectural changes and keep them in sync. Let me know if any section is unclear or missing context so we can iterate.

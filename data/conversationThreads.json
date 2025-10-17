@@ -1,0 +1,12 @@
+{
+  "threads": {
+    "__type": "Map",
+    "__data": []
+  },
+  "userThreads": {
+    "__type": "Map",
+    "__data": []
+  },
+  "limit": 10,
+  "nextThreadId": 1
+}
