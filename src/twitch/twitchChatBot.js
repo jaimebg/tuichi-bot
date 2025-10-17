@@ -1239,18 +1239,7 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             ? "El espectador esta respondiendo directamente a tu ultimo mensaje."
             : "El espectador te esta mencionando en el chat.";
 
-        // Enhanced search instructions
-        const searchInstructions = `Si la pregunta requiere información actual (noticias, resultados de partidos, clima hoy, eventos recientes) o datos específicos de internet que no conozcas, DEBES responder SOLO con BUSCAR: tu consulta exacta para que obtenga los resultados. 
-        
-        Ejemplos de cuándo BUSCAR:
-        - "¿Qué tiempo hace en Madrid hoy?" → BUSCAR: clima Madrid hoy
-        - "¿Cuál fue el resultado del partido de hoy?" → BUSCAR: resultado partido [equipo] hoy
-        - "¿A qué hora es el concierto de [artista]?" → BUSCAR: concierto [artista] horario
-        - "¿Quién ganó la liga este año?" → BUSCAR: ganador liga [año]
-        
-        NO busques para: opiniones, conversación, chistes, consejos generales, cosas que sepas de tu conocimiento.`;
-
-        const systemContent = `${personaText}${contextText}\n${searchInstructions} ${limitsLine}`;
+        const systemContent = `${personaText}${contextText}\n${limitsLine}`;
 
         // Get traditional conversation history as fallback
         const history = this.getConversationHistory(userKey);
