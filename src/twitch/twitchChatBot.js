@@ -398,19 +398,19 @@ class TwitchChatBot {
         }
 
         // Gather context from user memories (no recent chat for stream start)
-        const activeUsers = Array.from(this.userMemory.memories.keys())
+        const habitualUsers = Array.from(this.userMemory.memories.keys())
             .filter(user => !this.greetingIgnoreLogins.has(user.toLowerCase()))
             .slice(0, 10)
             .join(', ');
-        const prompt = `Genera un mensaje de bienvenida detallado y atractivo para el inicio de un stream de Twitch. Título del stream: "${title}". Categoría: "${game}". 
+        const prompt = `Genera un mensaje de bienvenida detallado y atractivo para el inicio de un stream de Twitch, que se enviará cuando el stream comience y que los espectadores leerán al entrar. Título del stream: "${title}". Categoría: "${game}". 
 
 Información disponible:
 - Título del stream: "${title}"
 - Categoría del stream: "${game}"
-- Usuarios activos recientes: ${activeUsers || 'Ninguno disponible'}
+- Usuarios que suelen estar activos: ${habitualUsers || 'Ninguno disponible'}
 
 El mensaje debe incluir el titulo del directo: ${title} y la categoría: ${game}". 
-Haz el mensaje largo y detallado (hasta 400 caracteres), entusiasta, único cada vez. Menciona algunos usuarios activos si es apropiado. Responde solo con el mensaje, sin comillas ni explicaciones adicionales.`;
+Haz el mensaje largo y detallado (hasta 400 caracteres), entusiasta, único cada vez. Menciona algunos usuarios habituales si es apropiado, pero sin dar por hecho que estén conectados actualmente. Responde solo con el mensaje, sin comillas ni explicaciones adicionales.`;
 
         const chatMessages = [
             { role: "system", content: `Eres un creador de contenido de Twitch entusiasta y creativo. Tu personalidad es: ${this.persona}.` },
