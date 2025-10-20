@@ -74,6 +74,7 @@ class TwitchChatBot {
         this.userHasChatted = new Set();
         this.silentUsers = new Set();
         this.greetedUsers = new Map();
+        this.greetingsEnabled = true;
         this.conversationHistory = new Map();
         this.pendingAIRequests = new Set();
         this.userLastAIResponseAt = new Map();
@@ -257,6 +258,9 @@ class TwitchChatBot {
                 if (botStateData.greetedUsers) {
                     this.greetedUsers = new Map(Object.entries(botStateData.greetedUsers));
                 }
+                if (botStateData.greetingsEnabled !== undefined) {
+                    this.greetingsEnabled = botStateData.greetingsEnabled;
+                }
                 // Don't load userHasChatted - let it reset each session
                 log("info", "Loaded bot state data");
             }
@@ -285,6 +289,7 @@ class TwitchChatBot {
             // Save bot state
             const botState = {
                 greetedUsers: Object.fromEntries(this.greetedUsers),
+                greetingsEnabled: this.greetingsEnabled,
                 // Don't save userHasChatted - let it reset each session
                 lastSaved: now
             };
@@ -592,6 +597,9 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         }
 
         this.silentUsers.add(userKey);
+        if (!this.greetingsEnabled) {
+            return;
+        }
         this.scheduleGreeting(username);
     }
 
@@ -608,6 +616,9 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         }
         const userKey = username.toLowerCase();
         if (userKey === this.username) {
+            return;
+        }
+        if (!this.greetingsEnabled) {
             return;
         }
         if (this.silentUsers.has(userKey)) {
@@ -652,6 +663,13 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         this.recentChat.addMessage(userKey, displayName, trimmedMessage, timestamp);
         this.userMemory.updateEngagement(userKey, trimmedMessage, timestamp);
         this.messageLogger.logMessage(userKey, displayName);
+
+        // Handle !saluditos toggle
+        if (trimmedMessage === "!saluditos" && userKey === "jaimevarecto") {
+            this.greetingsEnabled = !this.greetingsEnabled;
+            this.client.say(`#${this.channel}`, `Saludos ${this.greetingsEnabled ? 'activados' : 'desactivados'}`);
+            return;
+        }
 
         // Extract personality traits and themes
         this.extractIntelligence(userKey, trimmedMessage);
