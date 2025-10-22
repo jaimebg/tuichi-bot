@@ -3,11 +3,26 @@
 ## Architecture Basics
 - `main.js` is the only executable entry point; it builds a `CONFIG` object, resolves the `resources/` directory, then boots `TwitchChatBot`.
 - Core behaviour lives in `src/twitch/twitchChatBot.js`; this class composes helpers from:
-  - `src/intelligence/` for user memory, recent chat, and threaded conversations.
+  - `src/intelligence/` for user memory, recent chat, threaded conversations, and inactivity tracking.
+  - `src/games/` for game managers (polls, adventures, trivia, survive).
   - `src/persistence/dataPersistence.js` for JSON saves under `data/`.
   - `src/media/mediaOverlayServer.js` for the SSE overlay.
   - `src/twitch/channelPointsWatcher.js` for EventSub channel point redemptions.
 - Logging is centralised in `src/logger.js`; always call `setLogLevel` before instantiating the bot to keep `isDebugEnabled()` aligned.
+
+## Documentation Policy
+**⚠️ CRITICAL: NEVER CREATE NEW `.md` FILES FOR DOCUMENTATION.**
+
+All documentation must be maintained in:
+1. **`README.md`** – Primary documentation for users and developers
+2. **`AGENTS.md`** – Architecture and development guidelines (this file)
+
+### When Making Changes
+1. **After adding new features:** Update `README.md` with new commands, examples, and troubleshooting steps.
+2. **After architectural changes:** Update `AGENTS.md` with new patterns, modules, or workflow changes.
+3. **Before committing:** Ensure `README.md` and `AGENTS.md` reflect all significant changes.
+
+**Exception:** Temporary debugging files (e.g., test reports) can be created, but must be listed in `.gitignore` and removed before final commits.
 
 ## Static Content & Secrets
 - All editable text/JSON assets (greetings, persona, lore, aliases, reward map) now live in `resources/`. Update `main.js` if you introduce new files so agents use `RESOURCES_DIR`.
@@ -15,9 +30,41 @@
 - Replace the placeholder Twitch/Groq secrets in `main.js` before shipping. Prefer reading environment variables inside `CONFIG` so credentials stay out of version control.
 
 ## Working Patterns
+
+### Game Manager Architecture
+Each interactive game lives in `src/games/` and follows a consistent pattern:
+- **File naming**: `{gameType}Manager.js` (e.g., `pollManager.js`, `triviaManager.js`)
+- **Class structure**: 
+  - Private Maps/Sets for state (`this.activeGames`, `this.votes`, `this.answers`, etc.)
+  - Constructor accepting `groq` (AI client) and `logger` for dependency injection
+  - Public methods: `start{Game}()`, `record{Action}()`, `end{Game}()`, `cancel{Game}()`, `get{Game}Status()`
+- **Integration**: Each manager is instantiated in `TwitchChatBot` constructor and wired via handler methods that route messages
+- **Cleanup**: Always implement `cancel{Game}()` to clear timers and state; call during bot shutdown via `twitchChatBot.shutdown()`
+- **Persistence**: Managers handle their own state; use `dataPersistence.js` helpers if you need to save game history
+
+### Existing Game Managers (v2.0)
+- **`pollManager.js`** – Multiple-choice surveys with voting limits, auto-end on timer
+- **`adventureManager.js`** – Redesigned role-playing with difficulty scaling, death probabilities, dynamic rounds
+- **`triviaManager.js`** – AI-generated questions with timed multi-choice answers and explanations
+- **`surviveManager.js`** – Battle royale chat game with survival tracking and elimination
+
+### Intelligence Enhancements
+- **`inactivityTracker.js`** (v2.0) – Automatically generates AI-powered shame messages for inactive users; tracks per-channel inactivity thresholds and anti-spam delays
+- Integrates into `TwitchChatBot.start()` and `.shutdown()`; updates on every message via `handleMessage()`
+
+### General Feature Patterns
 - When adding new bot features, extend `TwitchChatBot` methods and wire additional helpers via its constructor; avoid requiring modules directly from `main.js`.
 - Always clamp or normalise outbound chat text using `src/utils/text.js` helpers—existing flows rely on `normalizeWhitespace` and `clampResponseLength`.
 - Channel point integrations should register new reward mappings in `resources/mediaRewards.json`; `mediaOverlayServer` auto-loads that file at start.
+
+### Adding New Games in Future
+1. Create `src/games/{newGame}Manager.js` following the manager pattern above
+2. Add to `TwitchChatBot` constructor: `this.{newGame}Manager = new {NewGame}Manager(this.groq, this.logger);`
+3. Add handler method: `handle{NewGame}Command()` that calls manager methods
+4. Route in `handleMessage()` before mention handling
+5. Add cleanup in `shutdown()`: `this.{newGame}Manager.cancel{NewGame}();`
+6. Update `README.md` with command syntax and examples
+7. Update this section in `AGENTS.md` with new manager details
 
 ## Developer Workflow
 - Install dependencies with `npm install`; run the bot locally using `npm start` (alias for `node main.js`).

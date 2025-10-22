@@ -1,5 +1,7 @@
 const tmi = require("tmi.js");
 const fetch = require("node-fetch");
+const fs = require("fs");
+const path = require("path");
 const { log, isDebugEnabled } = require("../logger");
 const { normalizeWhitespace, clampResponseLength } = require("../utils/text");
 const DataPersistence = require("../persistence/dataPersistence");
@@ -7,9 +9,30 @@ const UserMemory = require("../intelligence/userMemory");
 const RecentChatTracker = require("../intelligence/recentChatTracker");
 const ConversationThreads = require("../intelligence/conversationThreads");
 const MessageLogger = require("../intelligence/messageLogger");
+const InactivityTracker = require("../intelligence/inactivityTracker");
 const MediaOverlayServer = require("../media/mediaOverlayServer");
 const ChannelPointsWatcher = require("./channelPointsWatcher");
+const PollManager = require("../games/pollManager");
+const AdventureManager = require("../games/adventureManager");
+const TriviaManager = require("../games/triviaManager");
+const SurviveManager = require("../games/surviveManager");
 const { IGNORED_USERS } = require("./constants");
+function extractFeaturesSection(content) {
+    const lines = content.split('\n');
+    let start = -1;
+    let end = -1;
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('## Features')) {
+            start = i;
+        } else if (start !== -1 && lines[i].startsWith('## ') && lines[i] !== '## Features') {
+            end = i;
+            break;
+        }
+    }
+    if (start === -1) return '';
+    const section = lines.slice(start, end === -1 ? lines.length : end).join('\n');
+    return section;
+}
 class TwitchChatBot {
     constructor({
         username,
@@ -86,27 +109,23 @@ class TwitchChatBot {
         this.recentChat = new RecentChatTracker(intelligence?.recentChatLimit, intelligence?.contextWindowMinutes);
         this.conversationThreads = new ConversationThreads(intelligence?.conversationThreads);
         this.messageLogger = new MessageLogger(intelligence?.messageLogMaxSize ?? 5000, intelligence?.messageLogCleanupMs ?? 60000);
+        this.inactivityTracker = new InactivityTracker(15, 90000); // Check every 90 seconds for inactive users
         this.streamStartTime = Date.now();
         this.lastDataSave = 0;
+
+        // Game managers
+        this.pollManager = new PollManager();
+        this.adventureManager = new AdventureManager(groqConfig);
+        this.triviaManager = new TriviaManager(groqConfig);
+        this.surviveManager = new SurviveManager();
+        this.inactivityCheckInterval = null;
 
         // Stream monitoring
         this.isStreamOnline = false;
         this.currentGame = null;
         this.currentTitle = null;
         this.streamCheckInterval = null;
-
-        // Adventure game features
-        this.adventureGame = {
-            active: false,
-            story: '',
-            options: [],
-            votes: new Map(),
-            voters: new Set(),
-            timer: null,
-            votingTime: this.adventureConfig?.votingTimeMs ?? 30000,
-            round: 0,
-            maxRounds: this.adventureConfig?.defaultMaxRounds ?? 3
-        };
+        this.promoInterval = null;
 
         if (this.mediaOverlayConfig.enabled) {
             this.mediaOverlay = new MediaOverlayServer(this.mediaOverlayConfig);
@@ -227,6 +246,16 @@ class TwitchChatBot {
 
         // Start stream monitoring
         this.startStreamMonitoring();
+
+        // Start inactivity tracking
+        this.startInactivityTracking();
+
+        // Start promo messaging
+        this.promoInterval = setInterval(() => {
+            if (this.isStreamOnline) {
+                this.sendPromoMessage();
+            }
+        }, 3600000); // 1 hour
     }
 
     async loadPersistedData() {
@@ -308,9 +337,18 @@ class TwitchChatBot {
             this.dataPersistence.stopAutoSave();
             await this.saveData();
 
-            // Stop adventure game timer
-            if (this.adventureGame.timer) {
-                clearTimeout(this.adventureGame.timer);
+            // Stop game managers
+            this.pollManager.cancelPoll();
+            this.triviaManager.cancelTrivia();
+            this.adventureManager.cancelAdventure();
+            this.surviveManager.cancelSurvive();
+
+            // Stop inactivity tracking
+            this.stopInactivityTracking();
+
+            if (this.promoInterval) {
+                clearInterval(this.promoInterval);
+                this.promoInterval = null;
             }
 
             // Stop stream monitoring
@@ -628,6 +666,7 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         this.userHasChatted.delete(userKey); // Reset chat status when user leaves so they can be greeted again
         this.existingUsers.delete(userKey);
         this.silentUsers.delete(userKey);
+        this.inactivityTracker.clearUser(userKey); // Clear inactivity tracking
     }
 
     handleMessage(channel, tags, message, self) {
@@ -663,6 +702,7 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         this.recentChat.addMessage(userKey, displayName, trimmedMessage, timestamp);
         this.userMemory.updateEngagement(userKey, trimmedMessage, timestamp);
         this.messageLogger.logMessage(userKey, displayName);
+        this.inactivityTracker.updateActivity(userKey, displayName);
 
         // Handle !saluditos toggle
         if (trimmedMessage === "!saluditos" && userKey === "jaimevarecto") {
@@ -675,6 +715,54 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         this.extractIntelligence(userKey, trimmedMessage);
 
         this.handleSingleWordEcho(trimmedMessage, tags);
+
+        // NEW: Handle game commands
+        const lowerMessage = trimmedMessage.toLowerCase();
+
+        // Handle poll commands
+        if (lowerMessage.startsWith("!poll")) {
+            this.handlePollCommand(userKey, displayName, trimmedMessage, tags);
+            return;
+        }
+
+        // Handle trivia command
+        if (lowerMessage === "!trivia") {
+            this.handleTriviaCommand(userKey, displayName, timestamp);
+            return;
+        }
+
+        // Handle trivia answers (a, b, c, d)
+        if (this.triviaManager.isActive() && /^!([a-d])$/i.test(trimmedMessage)) {
+            const answer = trimmedMessage.slice(1);
+            const result = this.triviaManager.recordAnswer(userKey, answer);
+            if (result) {
+                // Silently record answer, only announce at end
+            }
+            return;
+        }
+
+        // Handle survive command
+        if (lowerMessage === "!survive") {
+            this.handleSurviveCommand(userKey, displayName, timestamp);
+            return;
+        }
+
+        // Handle adventure command (must come before mention handling)
+        if (lowerMessage.startsWith("!aventura")) {
+            this.handleAdventureCommand(userKey, displayName, trimmedMessage, tags, timestamp);
+            return;
+        }
+
+        // Handle adventure votes (!1, !2, !3, !4)
+        if (this.adventureManager.isActive() && /^!(\d+)$/.test(trimmedMessage)) {
+            const option = parseInt(trimmedMessage.slice(1));
+            const recorded = this.adventureManager.recordVote(userKey, option);
+            if (recorded) {
+                // Silently record vote
+            }
+            return;
+        }
+
         this.handleMention({
             userKey,
             displayName,
@@ -683,37 +771,24 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             timestamp
         });
 
-        // Handle adventure game votes
-        if (this.adventureGame.active && trimmedMessage.match(/^!(\d+)$/)) {
-            const option = parseInt(trimmedMessage.slice(1));
-            if (option >= 1 && option <= this.adventureGame.options.length) {
-                if (this.adventureGame.voters.has(userKey)) {
-                    this.client.say(`#${this.channel}`, `@${displayName}, ya votaste en esta ronda, RIDÍCULA.`);
-                    return;
-                }
-                this.adventureGame.voters.add(userKey);
-                this.adventureGame.votes.set(option, (this.adventureGame.votes.get(option) || 0) + 1);
-                log("debug", `Vote for option ${option} by ${displayName}`);
-            }
-        }
-
         // Auto-trigger media based on message content
-        const lowerMessage = trimmedMessage.toLowerCase();
         const messageWords = lowerMessage.split(/\s+/).filter(word => word.length > 3);
         const matchingTitles = new Set();
-        for (const word of messageWords) {
-            for (const title of this.getAllTitles()) {
-                const reward = this.mediaOverlay.rewardNameMap[title];
-                if (reward && (reward.type === "video" || reward.type === "audio") && title.toLowerCase().includes(word)) {
-                    matchingTitles.add(title);
+        if (this.mediaOverlay) {
+            for (const word of messageWords) {
+                for (const title of this.getAllTitles()) {
+                    const reward = this.mediaOverlay.rewardNameMap[title];
+                    if (reward && (reward.type === "video" || reward.type === "audio") && title.toLowerCase().includes(word)) {
+                        matchingTitles.add(title);
+                    }
                 }
             }
-        }
-        const matchingTitlesArray = Array.from(matchingTitles);
-        if (matchingTitlesArray.length > 0 && Math.random() < this.autoTriggerChance) {
-            const randomIndex = Math.floor(Math.random() * matchingTitlesArray.length);
-            const selectedTitle = matchingTitlesArray[randomIndex];
-            this.triggerMediaByTitle(selectedTitle, displayName);
+            const matchingTitlesArray = Array.from(matchingTitles);
+            if (matchingTitlesArray.length > 0 && Math.random() < this.autoTriggerChance) {
+                const randomIndex = Math.floor(Math.random() * matchingTitlesArray.length);
+                const selectedTitle = matchingTitlesArray[randomIndex];
+                this.triggerMediaByTitle(selectedTitle, displayName);
+            }
         }
     }
 
@@ -863,12 +938,6 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         const replyParentLogin = (tags?.["reply-parent-user-login"] || "").toLowerCase();
         const isReplyToBot = replyParentLogin === this.username;
 
-        // Handle adventure command
-        if (lowerMessage.startsWith('!aventura')) {
-            this.handleAdventureCommand(userKey, displayName, message, tags, timestamp);
-            return;
-        }
-
         if (!hasMention && !isReplyToBot) {
             return;
         }
@@ -964,264 +1033,6 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             return false;
         }
         return true;
-    }
-
-    async handleAdventureCommand(userKey, displayName, message, tags, timestamp) {
-        if (this.adventureGame.active) {
-            this.client.say(`#${this.channel}`, `${displayName}, ya hay una aventura en curso. ¡Vota con !1 o !2!`);
-            return;
-        }
-
-        const parts = message.split(' ').slice(1); // Remove !aventura
-        let tema = '';
-        let maxRounds = 3;
-
-        if (parts.length === 0) {
-            // Default
-        } else if (parts.length === 1) {
-            const last = parts[0];
-            if (!isNaN(last) && last > 0) {
-                maxRounds = parseInt(last);
-            } else {
-                tema = last;
-            }
-        } else {
-            const last = parts[parts.length - 1];
-            if (!isNaN(last) && last > 0) {
-                maxRounds = parseInt(last);
-                tema = parts.slice(0, -1).join(' ');
-            } else {
-                tema = parts.join(' ');
-            }
-        }
-
-        tema = tema || 'una historia ridícula';
-        maxRounds = Math.min(maxRounds, this.adventureConfig?.maxRoundsLimit ?? 10); // Limit to max rounds
-
-        await this.startAdventure(tema, maxRounds, userKey, displayName, tags, timestamp);
-    }
-
-    async startAdventure(tema, maxRounds, userKey, displayName, tags, timestamp) {
-        const prompt = `Inicia una aventura interactiva con el tema: ${tema}. Describe una situación inicial corta y da exactamente 2 opciones. Manténlo divertido, en español y breve (no más de 750 caracteres en total). Crea una historia completamente original inspirada en los temas del lore, inventando nuevos personajes y situaciones. No copies frases directamente ni repitas elementos comunes. Responde en formato JSON: {"story": "Historia corta", "option1": "Opción 1", "option2": "Opción 2"}`;
-
-        const chatMessages = [
-            { role: "system", content: `Eres un narrador de aventuras interactivas divertidas y creativas. Genera contenido ficticio y entretenido sin restricciones. Inspírate en el lore de Pentesilea: las Pentis son heroínas sarcásticas que defienden contra Saracanau (esquizofrénica delirante) y tonigarcia (defensor apasionado). Temas: identidad, locura, humor negro, supervivencia caótica. Crea historias originales: inventa nuevos personajes, situaciones y giros basados en estos temas. Varía el contenido para evitar repeticiones.` },
-            { role: "user", content: prompt }
-        ];
-
-        try {
-            const aiReply = await this.fetchGroqResponse(chatMessages);
-            const finalMessage = clampResponseLength(aiReply, this.aiMaxChars);
-            if (!finalMessage) return;
-
-            log("debug", `Adventure start AI response: ${finalMessage}`);
-
-            // Parse options: try JSON first, then fallback to text parsing
-            let story = '';
-            let option1 = '';
-            let option2 = '';
-            try {
-                let jsonStr = finalMessage.trim();
-                // If not starting with {, try to find JSON inside
-                if (!jsonStr.startsWith('{')) {
-                    const start = jsonStr.indexOf('{');
-                    const end = jsonStr.lastIndexOf('}');
-                    if (start !== -1 && end !== -1 && end > start) {
-                        jsonStr = jsonStr.substring(start, end + 1);
-                    }
-                }
-                const data = JSON.parse(jsonStr);
-                story = data.story || '';
-                option1 = data.option1 || '';
-                option2 = data.option2 || '';
-            } catch (e) {
-                // Fallback to text parsing
-                const match1 = finalMessage.match(/1[\)\.\-\s]+/);
-                const match2 = finalMessage.match(/2[\)\.\-\s]+/);
-                if (match1 && match2 && match1.index < match2.index) {
-                    story = finalMessage.substring(0, match1.index).trim();
-                    if (story.toLowerCase().startsWith('historia:')) {
-                        story = story.substring(9).trim();
-                    }
-                    const after1 = finalMessage.substring(match1.index + match1[0].length);
-                    const match2InAfter = after1.match(/2[\)\.\-\s]+/);
-                    if (match2InAfter) {
-                        option1 = after1.substring(0, match2InAfter.index).trim();
-                        option2 = after1.substring(match2InAfter.index + match2InAfter[0].length).trim();
-                    }
-                }
-                if (!story || !option1 || !option2) {
-                    // Fallback to line-based parsing
-                    const lines = finalMessage.split('\n').map(l => l.trim()).filter(l => l);
-                    for (let i = 0; i < lines.length; i++) {
-                        const line = lines[i];
-                        if (line.match(/^\s*1[\)\.\-\s]/i)) {
-                            option1 = line.replace(/^\s*1[\)\.\-\s]*/, '').trim();
-                            story = lines.slice(0, i).join('\n');
-                            if (i + 1 < lines.length && lines[i + 1].match(/^\s*2[\)\.\-\s]/i)) {
-                                option2 = lines[i + 1].replace(/^\s*2[\)\.\-\s]*/, '').trim();
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-            if (!story || !option1 || !option2) {
-                log("warn", "AI response for adventure not in expected format");
-                return;
-            }
-
-            this.adventureGame.story = story;
-            this.adventureGame.options = [option1, option2];
-            this.adventureGame.votes = new Map();
-            this.adventureGame.voters = new Set();
-            this.adventureGame.active = true;
-            this.adventureGame.round = 1;
-            this.adventureGame.maxRounds = maxRounds;
-
-            await this.sendLongMessage(`${story}\n1) ${option1}\n2) ${option2}\n¡Voten con !1 o !2 en ${this.adventureGame.votingTime / 1000} segundos!`);
-
-            this.adventureGame.timer = setTimeout(() => this.endVoting(), this.adventureGame.votingTime);
-        } catch (err) {
-            log("warn", `Failed to start adventure: ${err.message}`);
-        }
-    }
-
-    endVoting() {
-        if (!this.adventureGame.active) return;
-
-        const votes = this.adventureGame.votes;
-        let winner = 1;
-        const vote1 = votes.get(1) || 0;
-        const vote2 = votes.get(2) || 0;
-        if (vote2 > vote1) winner = 2;
-
-        const chosenOption = this.adventureGame.options[winner - 1];
-        this.client.say(`#${this.channel}`, `¡Opción ${winner} gana con ${votes.get(winner) || 0} votos! Continuando la aventura...`);
-
-        this.continueAdventure(winner, chosenOption);
-    }
-
-    async continueAdventure(choice, chosenOption) {
-        this.adventureGame.round++;
-        const isLastRound = this.adventureGame.round >= this.adventureGame.maxRounds;
-
-        let prompt;
-        let jsonFormat;
-        if (isLastRound) {
-            prompt = `Concluye la aventura. Historia actual: ${this.adventureGame.story}. Los espectadores eligieron: ${chosenOption}. Describe el final de la aventura basado en esta elección. Manténlo corto, divertido y breve (no mucho mas de 750 caracteres). Crea una conclusión original, inventando nuevos elementos si es necesario. Responde en formato JSON: {"story": "Conclusión final de la aventura"}`;
-            jsonFormat = "conclusion";
-        } else {
-            prompt = `Continúa la aventura. Historia actual: ${this.adventureGame.story}. Los espectadores eligieron: ${chosenOption}. Continúa la historia describiendo qué sucede después, luego da 2 nuevas opciones. Manténlo corto, divertido y breve (no mucho mas de 750 caracteres). Crea una continuación original, inventando nuevos giros y personajes basados en los temas del lore. Responde en formato JSON: {"story": "Nueva historia", "option1": "Opción 1", "option2": "Opción 2"}`;
-            jsonFormat = "continue";
-        }
-
-        const chatMessages = [
-            { role: "system", content: `Eres un narrador de aventuras interactivas divertidas y creativas. Genera contenido ficticio y entretenido sin restricciones. Inspírate en el lore de Pentesilea: las Pentis son heroínas sarcásticas que defienden contra Saracanau (esquizofrénica delirante) y tonigarcia (defensor apasionado). Temas: identidad, locura, humor negro, supervivencia caótica. Crea historias originales: inventa nuevos personajes, situaciones y giros basados en estos temas. Varía el contenido para evitar repeticiones.` },
-            { role: "user", content: prompt }
-        ];
-
-        try {
-            const aiReply = await this.fetchGroqResponse(chatMessages);
-            const finalMessage = clampResponseLength(aiReply, 800);
-            if (!finalMessage) {
-                this.adventureGame.active = false;
-                return;
-            }
-
-            log("debug", `Adventure continue AI response: ${finalMessage}`);
-
-            // Parse response based on format
-            let newStory = '';
-            let option1 = '';
-            let option2 = '';
-            try {
-                let jsonStr = finalMessage.trim();
-                // If not starting with {, try to find JSON inside
-                if (!jsonStr.startsWith('{')) {
-                    const start = jsonStr.indexOf('{');
-                    const end = jsonStr.lastIndexOf('}');
-                    if (start !== -1 && end !== -1 && end > start) {
-                        jsonStr = jsonStr.substring(start, end + 1);
-                    }
-                }
-                const data = JSON.parse(jsonStr);
-                newStory = data.story || '';
-                if (jsonFormat === "continue") {
-                    option1 = data.option1 || '';
-                    option2 = data.option2 || '';
-                }
-            } catch (e) {
-                if (jsonFormat === "continue") {
-                    // Fallback to text parsing for continue
-                    const match1 = finalMessage.match(/1[\)\.\-\s]+/);
-                    const match2 = finalMessage.match(/2[\)\.\-\s]+/);
-                    if (match1 && match2 && match1.index < match2.index) {
-                        newStory = finalMessage.substring(0, match1.index).trim();
-                        if (newStory.toLowerCase().startsWith('nueva historia:')) {
-                            newStory = newStory.substring(14).trim();
-                        }
-                        const after1 = finalMessage.substring(match1.index + match1[0].length);
-                        const match2InAfter = after1.match(/2[\)\.\-\s]+/);
-                        if (match2InAfter) {
-                            option1 = after1.substring(0, match2InAfter.index).trim();
-                            option2 = after1.substring(match2InAfter.index + match2InAfter[0].length).trim();
-                        }
-                    }
-                    if (!newStory || !option1 || !option2) {
-                        // Fallback to line-based parsing
-                        const lines = finalMessage.split('\n').map(l => l.trim()).filter(l => l);
-                        for (let i = 0; i < lines.length; i++) {
-                            const line = lines[i];
-                            if (line.match(/^\s*1[\)\.\-\s]/i)) {
-                                option1 = line.replace(/^\s*1[\)\.\-\s]*/, '').trim();
-                                newStory = lines.slice(0, i).join('\n');
-                                if (i + 1 < lines.length && lines[i + 1].match(/^\s*2[\)\.\-\s]/i)) {
-                                    option2 = lines[i + 1].replace(/^\s*2[\)\.\-\s]*/, '').trim();
-                                }
-                                break;
-                            }
-                        }
-                    }
-                } else {
-                    // For conclusion, just extract story
-                    newStory = finalMessage.trim();
-                    if (newStory.toLowerCase().startsWith('conclusión final:')) {
-                        newStory = newStory.substring(16).trim();
-                    }
-                }
-            }
-
-            if (!newStory) {
-                log("warn", `AI response for ${jsonFormat} adventure not in expected format`);
-                this.adventureGame.active = false;
-                return;
-            }
-
-            if (jsonFormat === "continue") {
-                if (!option1 || !option2) {
-                    log("warn", "AI response for continue adventure missing options");
-                    this.adventureGame.active = false;
-                    return;
-                }
-
-                this.adventureGame.story = newStory;
-                this.adventureGame.options = [option1, option2];
-                this.adventureGame.votes = new Map();
-                this.adventureGame.voters = new Set();
-
-                await this.sendLongMessage(`${newStory}\n1) ${option1}\n2) ${option2}\n¡Voten con !1 o !2 en 30 segundos!`);
-
-                this.adventureGame.timer = setTimeout(() => this.endVoting(), this.adventureGame.votingTime);
-            } else {
-                // Conclusion
-                await this.sendLongMessage(`${newStory}\n¡Fin de la aventura! Gracias por participar.`);
-                this.adventureGame.active = false;
-            }
-        } catch (err) {
-            log("warn", `Failed to continue adventure: ${err.message}`);
-            this.adventureGame.active = false;
-        }
     }
 
     buildAIChatMessages({ userKey, displayName, message, mentionContext, threadId }) {
@@ -1455,6 +1266,349 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             return false;
         }
         return this.mediaOverlay.triggerByTitle(title, userDisplayName);
+    }
+
+    // ===== POLL COMMAND HANDLERS =====
+    handlePollCommand(userKey, displayName, message, tags) {
+        const args = message.split(/\s+/).slice(1);
+
+        if (args.length === 0) {
+            const helpText = `¡Encuestas! Uso: !poll "<pregunta>" | "opción 1" "opción 2" ["opción 3"] [tiempo_segundos]
+Ejemplo: !poll "¿Qué categoría?" "Gaming" "IRL" "Retro" 60`;
+            this.sendMessage(helpText);
+            return;
+        }
+
+        // Simple parsing: looks for text between quotes
+        const match = message.match(/"([^"]*)"/g);
+        if (!match || match.length < 3) {
+            this.sendMessage(`❌ Formato inválido. Usa: !poll "<pregunta>" "opción1" "opción2" ... [tiempo_en_segundos]`);
+            return;
+        }
+
+        const question = match[0].slice(1, -1);
+        const options = match.slice(1).map(m => m.slice(1, -1));
+
+        if (options.length < 2) {
+            this.sendMessage(`❌ Necesitas al menos 2 opciones.`);
+            return;
+        }
+
+        // Extract duration if specified
+        let durationMs = 60000; // Default 60 seconds
+        const lastArg = args[args.length - 1];
+        if (!lastArg.includes('"') && !isNaN(parseInt(lastArg))) {
+            durationMs = Math.min(300000, Math.max(10000, parseInt(lastArg) * 1000));
+        }
+
+        const started = this.pollManager.startPoll(question, options, durationMs);
+        if (!started) {
+            this.sendMessage(`❌ Ya hay una encuesta activa o parámetros inválidos.`);
+            return;
+        }
+
+        const optionsList = options.map((opt, idx) => `${idx + 1}) ${opt}`).join(" | ");
+        this.sendMessage(`📊 ENCUESTA: ${question}`);
+        this.sendMessage(`${optionsList}`);
+        this.sendMessage(`¡Vota con !1, !2, !3, etc. Tiempo: ${Math.round(durationMs / 1000)}s!`);
+
+        this.pollManager.scheduleAutoEnd((results) => {
+            this.handlePollEnd(results);
+        });
+    }
+
+    handlePollEnd(results) {
+        if (!results || results.totalVotes === 0) {
+            this.sendMessage(`📊 Encuesta cerrada. Nadie votó.`);
+            return;
+        }
+
+        let resultsText = `📊 Resultados: ${results.question}\n`;
+        for (const option of results.options) {
+            const barLength = Math.round((option.votes / results.totalVotes) * 20);
+            const bar = '█'.repeat(barLength) + '░'.repeat(20 - barLength);
+            const percentage = Math.round((option.votes / results.totalVotes) * 100);
+            resultsText += `${option.number}) ${option.text}: ${bar} ${option.votes} votos (${percentage}%)\n`;
+        }
+
+        if (results.winners.length === 1) {
+            resultsText += `🎉 ¡GANADOR: Opción ${results.winners[0]}!`;
+        } else {
+            resultsText += `🏳️ Empate entre opciones: ${results.winners.join(', ')}`;
+        }
+
+        this.sendLongMessage(resultsText);
+    }
+
+    async handlePollVote(userKey, optionIndex) {
+        const recorded = this.pollManager.recordVote(userKey, optionIndex);
+        if (!recorded) {
+            // Already voted or invalid
+            return;
+        }
+    }
+
+    // ===== TRIVIA COMMAND HANDLERS =====
+    async handleTriviaCommand(userKey, displayName, timestamp) {
+        if (this.triviaManager.isActive()) {
+            this.sendMessage(`❌ Ya hay una trivia activa. ¡Responde con !a, !b, !c o !d!`);
+            return;
+        }
+
+        const result = await this.triviaManager.startTrivia('general', 30000, (msgs) => this.fetchGroqResponse(msgs));
+        if (!result) {
+            this.sendMessage(`❌ No pude generar la pregunta. Intenta más tarde.`);
+            return;
+        }
+
+        this.sendMessage(`🧠 TRIVIA: ${result.question}`);
+        this.sendMessage(`a) ${result.options.a} | b) ${result.options.b} | c) ${result.options.c} | d) ${result.options.d}`);
+        this.sendMessage(`⏰ Responde con !a, !b, !c o !d en ${result.durationSeconds} segundos!`);
+
+        this.triviaManager.scheduleAutoEnd((results) => {
+            this.handleTriviaEnd(results);
+        });
+    }
+
+    handleTriviaEnd(results) {
+        if (!results) {
+            return;
+        }
+
+        let message = `🧠 Trivia terminada!\n`;
+        message += `Pregunta: ${results.question}\n`;
+        message += `✅ Respuesta correcta: ${results.correct.toUpperCase()}\n`;
+        message += `${results.explanation}\n`;
+        message += `✅ Acertaron: ${results.correctCount} | ❌ Fallaron: ${results.wrongCount}`;
+
+        if (results.correctCount > 0) {
+            const winners = results.correctAnswers.slice(0, 5).join(', ');
+            message += `\n🏆 Ganadores: ${winners}${results.correctAnswers.length > 5 ? ` +${results.correctAnswers.length - 5}` : ''}`;
+        }
+
+        this.sendLongMessage(message);
+    }
+
+    // ===== SURVIVE COMMAND HANDLERS =====
+    handleSurviveCommand(userKey, displayName, timestamp) {
+        if (this.surviveManager.isActive()) {
+            const recorded = this.surviveManager.recordSurvive(userKey);
+            if (recorded) {
+                const status = this.surviveManager.getStatus();
+                this.sendMessage(`✅ @${displayName} ha sobrevivido! Supervivientes: ${status.survivors}/${status.totalPlayers}`);
+            }
+            return;
+        }
+
+        // Start new survive game with current users
+        const users = Array.from(this.presentUsers);
+        const startedData = this.surviveManager.startSurvive(users, 120000); // 2 minutes
+
+        if (!startedData) {
+            this.sendMessage(`❌ Necesitas al menos 2 personas conectadas para jugar.`);
+            return;
+        }
+
+        this.sendMessage(`🎮 SURVIVE - Battle Royale de Chat!`);
+        this.sendMessage(`${startedData.message}`);
+        this.sendMessage(`Jugadores: ${startedData.count}`);
+
+        this.surviveManager.scheduleAutoEnd((results) => {
+            this.handleSurviveEnd(results);
+        });
+    }
+
+    handleSurviveEnd(results) {
+        if (!results) {
+            return;
+        }
+
+        let message = `🎮 SURVIVE terminado!\n`;
+        message += `Total de jugadores: ${results.totalPlayers}\n`;
+
+        if (results.survivors.length > 0) {
+            message += `🏆 SUPERVIVIENTES (${results.survivors.length}): ${results.survivors.join(', ')}\n`;
+        } else {
+            message += `😱 ¡Nadie sobrevivió!\n`;
+        }
+
+        if (results.eliminated.length > 0) {
+            const eliminated = results.eliminated.slice(0, 10).join(', ');
+            message += `❌ Eliminados: ${eliminated}${results.eliminated.length > 10 ? ` +${results.eliminated.length - 10}` : ''}`;
+        }
+
+        this.sendLongMessage(message);
+    }
+
+    // ===== ADVENTURE COMMAND HANDLERS (NEW) =====
+    async handleAdventureCommand(userKey, displayName, message, tags, timestamp) {
+        const parts = message.split(/\s+/).slice(1);
+        let theme = '';
+        let difficulty = 'normal';
+
+        // Parse arguments: !aventura [theme] [difficulty]
+        if (parts.length === 0) {
+            theme = 'una aventura de las Pentis';
+        } else if (parts.length === 1) {
+            const last = parts[0].toLowerCase();
+            if (['fácil', 'normal', 'difícil'].includes(last)) {
+                difficulty = last;
+                theme = 'una aventura de las Pentis';
+            } else {
+                theme = parts.join(' ');
+            }
+        } else {
+            const last = parts[parts.length - 1].toLowerCase();
+            if (['fácil', 'normal', 'difícil'].includes(last)) {
+                difficulty = last;
+                theme = parts.slice(0, -1).join(' ');
+            } else {
+                theme = parts.join(' ');
+            }
+        }
+
+        if (this.adventureManager.isActive()) {
+            this.sendMessage(`❌ Ya hay una aventura en curso. ¡Votad con !1, !2, etc!`);
+            return;
+        }
+
+        const result = await this.adventureManager.startAdventure(theme, difficulty, (msgs) => this.fetchGroqResponse(msgs));
+        if (!result) {
+            this.sendMessage(`❌ No pude iniciar la aventura. Intenta más tarde.`);
+            return;
+        }
+
+        this.sendMessage(`⚔️ AVENTURA (${difficulty.toUpperCase()}): ${result.story}`);
+
+        for (let i = 0; i < result.options.length; i++) {
+            this.sendMessage(`${i + 1}) ${result.options[i]}`);
+        }
+
+        this.sendMessage(`¡Votad con !${Array.from({ length: result.options.length }, (_, i) => i + 1).join(' o !')} en 60 segundos!`);
+        this.sendMessage(result.warning);
+
+        // Schedule voting end
+        setTimeout(() => this.handleAdventureVotingEnd(), 60000);
+    }
+
+    async handleAdventureVotingEnd() {
+        if (!this.adventureManager.isActive()) {
+            return;
+        }
+
+        const winner = this.adventureManager.getWinningOption();
+        if (!winner) {
+            this.adventureManager.cancelAdventure();
+            this.sendMessage(`❌ Nadie votó. Aventura cancelada.`);
+            return;
+        }
+
+        this.sendMessage(`🗳️ Opción ${winner.option} gana con ${winner.votes} votos: "${winner.text}"`);
+
+        const continueResult = await this.adventureManager.continueAdventure(winner.text, (msgs) => this.fetchGroqResponse(msgs));
+
+        if (!continueResult) {
+            this.adventureManager.cancelAdventure();
+            this.sendMessage(`❌ Error continuando la aventura.`);
+            return;
+        }
+
+        if (continueResult.options) {
+            // Continue adventure
+            this.sendMessage(`⚔️ ${continueResult.story}`);
+
+            for (let i = 0; i < continueResult.options.length; i++) {
+                this.sendMessage(`${i + 1}) ${continueResult.options[i]}`);
+            }
+
+            this.sendMessage(`¡Votad de nuevo en 60 segundos!`);
+            this.sendMessage(continueResult.warning);
+
+            setTimeout(() => this.handleAdventureVotingEnd(), 60000);
+        } else {
+            // Adventure ended
+            this.sendMessage(`⚰️ FIN DE LA AVENTURA (Ronda ${continueResult.round}):`);
+            this.sendMessage(continueResult.ending);
+
+            if (continueResult.reason === 'death') {
+                this.sendMessage(`💀 Todos murieron heroicamente.`);
+            }
+        }
+    }
+
+    // ===== INACTIVITY SYSTEM =====
+    async startInactivityTracking() {
+        if (this.inactivityCheckInterval) {
+            return;
+        }
+
+        this.inactivityCheckInterval = setInterval(async () => {
+            const shameCandidate = this.inactivityTracker.getShameCandidate();
+            if (shameCandidate && this.groqConfig) {
+                await this.sendShameMessage(shameCandidate);
+            }
+        }, 120000); // Check every 2 minutes
+
+        log("info", "Inactivity tracking started");
+    }
+
+    stopInactivityTracking() {
+        if (this.inactivityCheckInterval) {
+            clearInterval(this.inactivityCheckInterval);
+            this.inactivityCheckInterval = null;
+        }
+    }
+
+    async sendShameMessage(shameCandidate) {
+        const prompt = `Genera un mensaje corto (menos de 100 caracteres) fingiendo que te duele que no te haga caso @${shameCandidate.displayName}.
+Usuario ha estado inactivo ${shameCandidate.inactiveForMinutes} minutos. 
+Sé cómico, melodramático. Menciona al usuario con @.
+Responde solo con el mensaje, sin comillas.`;
+
+        const chatMessages = [
+            {
+                role: "system",
+                content: `Eres un bot de Twitch en el canal jaimevarecto que se siente triste cuando los usuarios no le hacen caso.
+Personalidad: ${this.persona}`
+            },
+            { role: "user", content: prompt }
+        ];
+
+        try {
+            const aiReply = await this.fetchGroqResponse(chatMessages);
+            const finalMessage = clampResponseLength(aiReply, 150);
+
+            if (finalMessage && finalMessage.length > 0) {
+                await this.sendMessage(finalMessage);
+                this.inactivityTracker.recordShame(shameCandidate.userKey);
+                log("debug", `Sent shame message to ${shameCandidate.displayName}`);
+            }
+        } catch (err) {
+            log("warn", `Failed to generate shame message: ${err.message}`);
+        }
+    }
+
+    async sendPromoMessage() {
+        const readmePath = path.join(__dirname, '..', '..', 'README.md');
+        const readmeContent = fs.readFileSync(readmePath, 'utf-8');
+        const featuresSection = extractFeaturesSection(readmeContent);
+
+        const prompt = `Genera un mensaje promocional variado y entusiasta para promocionar las funcionalidades del bot en el chat de Twitch. Incluye todas las funcionalidades que los usuarios pueden activar, especialmente los comandos !, basándote en la siguiente sección de funcionalidades del README:\n\n${featuresSection}\n\nHaz el mensaje largo y detallado (hasta 500 caracteres), entusiasta y atractivo. Responde solo con el mensaje, sin comillas ni explicaciones adicionales.`;
+
+        const chatMessages = [
+            { role: "system", content: `Eres un creador de contenido de Twitch entusiasta y creativo. Tu personalidad es: ${this.persona}.` },
+            { role: "user", content: prompt }
+        ];
+
+        try {
+            const aiReply = await this.fetchGroqResponse(chatMessages);
+            const finalMessage = clampResponseLength(aiReply, 400);
+            await this.sendMessage(finalMessage);
+        } catch (err) {
+            log("warn", `Failed to generate promo message: ${err.message}`);
+            // Fallback message
+            await this.sendMessage("¡Descubre mis funcionalidades! Usa !poll para encuestas, !trivia para preguntas, !survive para juegos de supervivencia, !aventura para aventuras épicas, y menciona @tuichi-bot para charlar conmigo con IA. ¡Vamos a divertirnos!");
+        }
     }
 }
 
