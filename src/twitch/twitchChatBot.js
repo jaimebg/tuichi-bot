@@ -1639,7 +1639,7 @@ Personalidad: ${this.persona}`
         const commandSection = extractCommandReference(readmeContent);
 
         if (commandSection) {
-            const prompt = `Sintetiza esta información de comandos del bot en un mensaje claro, amigable y completo en español, manteniendo mi personalidad. Incluye todos los comandos importantes y explica brevemente qué hacen. Responde solo con el mensaje sintetizado, sin comillas ni explicaciones adicionales.\n\nInformación de comandos:\n${commandSection}`;
+            const prompt = `Resume los comandos disponibles del bot en español, de forma clara y concisa. Lista todos los comandos ! con una breve descripción de cada uno, enfocándote en los comandos principales. Mantén mi personalidad amigable pero ve al grano. Responde solo con la lista de comandos, sin introducciones ni explicaciones adicionales.\n\nInformación de comandos:\n${commandSection}`;
 
             const chatMessages = [
                 { role: "system", content: `Eres un creador de contenido de Twitch entusiasta y creativo. Tu personalidad es: ${this.persona}.` },
