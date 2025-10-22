@@ -94,6 +94,7 @@ class TwitchChatBot {
         this.currentGame = null;
         this.currentTitle = null;
         this.streamCheckInterval = null;
+        this.freeJaimeInterval = null;
 
         // Adventure game features
         this.adventureGame = {
@@ -338,6 +339,11 @@ class TwitchChatBot {
         this.streamCheckInterval = setInterval(() => {
             this.checkStreamStatus();
         }, 60000); // Check every 60 seconds
+        this.freeJaimeInterval = setInterval(() => {
+            if (this.isStreamOnline) {
+                this.sendMessage("#FREEJAIMEVARECTO");
+            }
+        }, 120000); // Send every 2 minutes
         log("info", "Started stream monitoring");
         // Initial check
         this.checkStreamStatus();
@@ -348,6 +354,10 @@ class TwitchChatBot {
             clearInterval(this.streamCheckInterval);
             this.streamCheckInterval = null;
             log("info", "Stopped stream monitoring");
+        }
+        if (this.freeJaimeInterval) {
+            clearInterval(this.freeJaimeInterval);
+            this.freeJaimeInterval = null;
         }
     }
 
