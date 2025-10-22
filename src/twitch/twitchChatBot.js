@@ -33,6 +33,22 @@ function extractFeaturesSection(content) {
     const section = lines.slice(start, end === -1 ? lines.length : end).join('\n');
     return section;
 }
+function extractCommandReference(content) {
+    const lines = content.split('\n');
+    let start = -1;
+    let end = -1;
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('## Command Reference')) {
+            start = i;
+        } else if (start !== -1 && lines[i].startsWith('## ') && lines[i] !== '## Command Reference') {
+            end = i;
+            break;
+        }
+    }
+    if (start === -1) return '';
+    const section = lines.slice(start, end === -1 ? lines.length : end).join('\n');
+    return section;
+}
 class TwitchChatBot {
     constructor({
         username,
@@ -760,6 +776,12 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             if (recorded) {
                 // Silently record vote
             }
+            return;
+        }
+
+        // Handle help command
+        if (lowerMessage === "!ayuda") {
+            this.handleHelpCommand(userKey, displayName);
             return;
         }
 
@@ -1608,6 +1630,19 @@ Personalidad: ${this.persona}`
             log("warn", `Failed to generate promo message: ${err.message}`);
             // Fallback message
             await this.sendMessage("¡Descubre mis funcionalidades! Usa !poll para encuestas, !trivia para preguntas, !survive para juegos de supervivencia, !aventura para aventuras épicas, y menciona @tuichi-bot para charlar conmigo con IA. ¡Vamos a divertirnos!");
+        }
+    }
+
+    async handleHelpCommand(userKey, displayName) {
+        const readmePath = path.join(__dirname, '..', '..', 'README.md');
+        const readmeContent = fs.readFileSync(readmePath, 'utf-8');
+        const commandSection = extractCommandReference(readmeContent);
+
+        if (commandSection) {
+            await this.sendLongMessage(`📚 **Comandos del Bot TuichiBot**\n\n${commandSection}`);
+        } else {
+            // Fallback
+            await this.sendMessage("Comandos disponibles: !poll, !trivia, !survive, !aventura, !ayuda. Menciona @tuichi-bot para IA.");
         }
     }
 }

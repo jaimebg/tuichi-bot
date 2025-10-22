@@ -67,6 +67,7 @@ Runtime state (user memories, chat history, etc.) is still stored separately und
 ## Command Reference
 
 ### Core Commands
+- **`!ayuda`** – Muestra esta lista de comandos disponibles.
 - **`!aventura [theme] [difficulty]`** – Start an interactive adventure. Difficulty options: `fácil` (15% death), `normal` (35% death, default), `difícil` (55% death). Adventures are dynamic and can end at any time based on decisions and probability. Warning: the story may conclude unexpectedly—viewers should agree on the safest action.
 - **`!poll "<question>" "option1" "option2" ["option3"] [duration_seconds]`** – Start a poll. Viewers vote with `!1`, `!2`, `!3`, etc. Duration defaults to 60 seconds. Max 10 options.
 - **`!trivia`** – Generate a random trivia question (4 multiple-choice options: a, b, c, d). Viewers answer with `!a`, `!b`, etc. Reveals correct answer and winners after 30 seconds.
