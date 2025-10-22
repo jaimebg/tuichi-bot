@@ -1639,7 +1639,22 @@ Personalidad: ${this.persona}`
         const commandSection = extractCommandReference(readmeContent);
 
         if (commandSection) {
-            await this.sendLongMessage(`📚 **Comandos del Bot TuichiBot**\n\n${commandSection}`);
+            const prompt = `Sintetiza esta información de comandos del bot en un mensaje claro, amigable y completo en español, manteniendo mi personalidad. Incluye todos los comandos importantes y explica brevemente qué hacen. Responde solo con el mensaje sintetizado, sin comillas ni explicaciones adicionales.\n\nInformación de comandos:\n${commandSection}`;
+
+            const chatMessages = [
+                { role: "system", content: `Eres un creador de contenido de Twitch entusiasta y creativo. Tu personalidad es: ${this.persona}.` },
+                { role: "user", content: prompt }
+            ];
+
+            try {
+                const aiReply = await this.fetchGroqResponse(chatMessages);
+                const finalMessage = clampResponseLength(aiReply, 400);
+                await this.sendLongMessage(finalMessage);
+            } catch (err) {
+                log("warn", `Failed to generate help message: ${err.message}`);
+                // Fallback
+                await this.sendMessage("Comandos disponibles: !poll, !trivia, !survive, !aventura, !ayuda. Menciona @tuichi-bot para IA.");
+            }
         } else {
             // Fallback
             await this.sendMessage("Comandos disponibles: !poll, !trivia, !survive, !aventura, !ayuda. Menciona @tuichi-bot para IA.");
