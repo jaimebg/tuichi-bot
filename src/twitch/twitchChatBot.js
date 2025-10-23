@@ -141,7 +141,6 @@ class TwitchChatBot {
         this.currentGame = null;
         this.currentTitle = null;
         this.streamCheckInterval = null;
-        this.promoInterval = null;
 
         if (this.mediaOverlayConfig.enabled) {
             this.mediaOverlay = new MediaOverlayServer(this.mediaOverlayConfig);
@@ -265,13 +264,6 @@ class TwitchChatBot {
 
         // Start inactivity tracking
         this.startInactivityTracking();
-
-        // Start promo messaging
-        this.promoInterval = setInterval(() => {
-            if (this.isStreamOnline) {
-                this.sendPromoMessage();
-            }
-        }, 3600000); // 1 hour
     }
 
     async loadPersistedData() {
@@ -361,11 +353,6 @@ class TwitchChatBot {
 
             // Stop inactivity tracking
             this.stopInactivityTracking();
-
-            if (this.promoInterval) {
-                clearInterval(this.promoInterval);
-                this.promoInterval = null;
-            }
 
             // Stop stream monitoring
             this.stopStreamMonitoring();
@@ -776,12 +763,6 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             if (recorded) {
                 // Silently record vote
             }
-            return;
-        }
-
-        // Handle help command
-        if (lowerMessage === "!ayuda") {
-            this.handleHelpCommand(userKey, displayName);
             return;
         }
 
@@ -1582,15 +1563,15 @@ Ejemplo: !poll "¿Qué categoría?" "Gaming" "IRL" "Retro" 60`;
     }
 
     async sendShameMessage(shameCandidate) {
-        const prompt = `Genera un mensaje corto (menos de 100 caracteres) fingiendo que te duele que no te haga caso @${shameCandidate.displayName}.
-Usuario ha estado inactivo ${shameCandidate.inactiveForMinutes} minutos. 
-Sé cómico, melodramático. Menciona al usuario con @.
+        const prompt = `Genera un mensaje largo y sarcástico (150-200 caracteres) fingiendo que te duele profundamente que @${shameCandidate.displayName} no te haga caso.
+Usuario ha estado inactivo ${shameCandidate.inactiveForMinutes} minutos.
+Sé muy cómico, melodramático y sarcástico. Exagera tus sentimientos heridos.
 Responde solo con el mensaje, sin comillas.`;
 
         const chatMessages = [
             {
                 role: "system",
-                content: `Eres un bot de Twitch en el canal jaimevarecto que se siente triste cuando los usuarios no le hacen caso.
+                content: `Eres un bot de Twitch en el canal jaimevarecto que es profundamente dramático y sarcástico cuando los usuarios se ignoran. Eres muy cómico y exageras tus emociones de forma que la gente te quiere más. 
 Personalidad: ${this.persona}`
             },
             { role: "user", content: prompt }
@@ -1598,7 +1579,7 @@ Personalidad: ${this.persona}`
 
         try {
             const aiReply = await this.fetchGroqResponse(chatMessages);
-            const finalMessage = clampResponseLength(aiReply, 150);
+            const finalMessage = clampResponseLength(aiReply, 200);
 
             if (finalMessage && finalMessage.length > 0) {
                 await this.sendMessage(finalMessage);
@@ -1607,57 +1588,6 @@ Personalidad: ${this.persona}`
             }
         } catch (err) {
             log("warn", `Failed to generate shame message: ${err.message}`);
-        }
-    }
-
-    async sendPromoMessage() {
-        const readmePath = path.join(__dirname, '..', '..', 'README.md');
-        const readmeContent = fs.readFileSync(readmePath, 'utf-8');
-        const featuresSection = extractFeaturesSection(readmeContent);
-
-        const prompt = `Genera un mensaje promocional variado y entusiasta para promocionar las funcionalidades del bot en el chat de Twitch. Incluye todas las funcionalidades que los usuarios pueden activar, especialmente los comandos !, basándote en la siguiente sección de funcionalidades del README:\n\n${featuresSection}\n\nHaz el mensaje largo y detallado (hasta 500 caracteres), entusiasta y atractivo. Responde solo con el mensaje, sin comillas ni explicaciones adicionales.`;
-
-        const chatMessages = [
-            { role: "system", content: `Eres un creador de contenido de Twitch entusiasta y creativo. Tu personalidad es: ${this.persona}.` },
-            { role: "user", content: prompt }
-        ];
-
-        try {
-            const aiReply = await this.fetchGroqResponse(chatMessages);
-            const finalMessage = clampResponseLength(aiReply, 400);
-            await this.sendMessage(finalMessage);
-        } catch (err) {
-            log("warn", `Failed to generate promo message: ${err.message}`);
-            // Fallback message
-            await this.sendMessage("¡Descubre mis funcionalidades! Usa !poll para encuestas, !trivia para preguntas, !survive para juegos de supervivencia, !aventura para aventuras épicas, y menciona @tuichi-bot para charlar conmigo con IA. ¡Vamos a divertirnos!");
-        }
-    }
-
-    async handleHelpCommand(userKey, displayName) {
-        const readmePath = path.join(__dirname, '..', '..', 'README.md');
-        const readmeContent = fs.readFileSync(readmePath, 'utf-8');
-        const commandSection = extractCommandReference(readmeContent);
-
-        if (commandSection) {
-            const prompt = `Resume los comandos disponibles del bot en español, de forma clara y concisa. Lista todos los comandos ! con una breve descripción de cada uno, enfocándote en los comandos principales. Mantén mi personalidad amigable pero ve al grano. Responde solo con la lista de comandos, sin introducciones ni explicaciones adicionales.\n\nInformación de comandos:\n${commandSection}`;
-
-            const chatMessages = [
-                { role: "system", content: `Eres un creador de contenido de Twitch entusiasta y creativo. Tu personalidad es: ${this.persona}.` },
-                { role: "user", content: prompt }
-            ];
-
-            try {
-                const aiReply = await this.fetchGroqResponse(chatMessages);
-                const finalMessage = clampResponseLength(aiReply, 400);
-                await this.sendLongMessage(finalMessage);
-            } catch (err) {
-                log("warn", `Failed to generate help message: ${err.message}`);
-                // Fallback
-                await this.sendMessage("Comandos disponibles: !poll, !trivia, !survive, !aventura, !ayuda. Menciona @tuichi-bot para IA.");
-            }
-        } else {
-            // Fallback
-            await this.sendMessage("Comandos disponibles: !poll, !trivia, !survive, !aventura, !ayuda. Menciona @tuichi-bot para IA.");
         }
     }
 }

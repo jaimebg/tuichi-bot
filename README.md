@@ -33,20 +33,34 @@ A sophisticated Node.js Twitch chat bot for the `jaimevarecto` channel, featurin
    npm install
    ```
 
-2. **Configure the bot**
-   - Edit `main.js` (or copy it to your own entry file) and provide the Twitch credentials, API tokens, and feature flags inside the `CONFIG` object.
-   - Update the content files under `resources/` (`greetings.txt`, `persona.txt`, `lore.txt`, `aliases.txt`) to match your channel tone.
-   - If you plan to commit your repo, keep secrets out of source control (e.g., load them from environment variables or a secrets file before constructing `CONFIG`).
+2. **Configure credentials in `main.js`**
+   - Open `main.js` and locate the `TWITCH_CREDENTIALS` and `GROQ_CREDENTIALS` objects at the top
+   - Replace all placeholder values (e.g., `your_oauth_token_here`) with your actual credentials:
+     - **`username`** – Your bot's Twitch username
+     - **`channel`** – The channel to join (usually your main channel)
+     - **`oauthToken`** – OAuth token for IRC chat access
+     - **`apiToken`** – Twitch API access token
+     - **`refreshToken`** – Twitch API refresh token (for auto-renewal)
+     - **`clientId`** – Your Twitch app's client ID
+     - **`clientSecret`** – Your Twitch app's client secret
+     - **`GROQ_CREDENTIALS.apiKey`** – Your Groq API key
+   - ⚠️ **Security Warning**: The credentials are now hardcoded in `main.js`. In production:
+     - Never commit real credentials to version control
+     - Use `.gitignore` or load from environment variables before running
+     - Consider using a secrets manager for production deployments
 
-3. **Run the bot**
+3. **Customize bot behavior**
+   - Edit `resources/greetings.txt` – Greeting messages for new viewers
+   - Edit `resources/persona.txt` – AI personality and behavior guidelines
+   - Edit `resources/lore.txt` – Story elements for adventures
+   - Edit `resources/aliases.txt` – Username-to-alias mappings
+   - Edit `resources/mediaRewards.json` – Channel point reward mappings
+
+4. **Run the bot**
    ```bash
    npm start
    ```
-   The default `npm start` script runs `node main.js`. You can point the script at any other launcher that creates a `TwitchChatBot` instance.
-
-4. **Deploy or keep-alive options**
-   - Use a process manager such as `pm2`, Docker, or systemd to keep the bot online.
-   - Remember to expose the media overlay port (`8910` by default) if you want to load the browser overlay in OBS or similar tools.
+   The default `npm start` script runs `node main.js`. The bot will start and connect to the configured channel.
 
 ## Scripts
 
@@ -67,7 +81,6 @@ Runtime state (user memories, chat history, etc.) is still stored separately und
 ## Command Reference
 
 ### Core Commands
-- **`!ayuda`** – Muestra esta lista de comandos disponibles.
 - **`!aventura [theme] [difficulty]`** – Start an interactive adventure. Difficulty options: `fácil` (15% death), `normal` (35% death, default), `difícil` (55% death). Adventures are dynamic and can end at any time based on decisions and probability. Warning: the story may conclude unexpectedly—viewers should agree on the safest action.
 - **`!poll "<question>" "option1" "option2" ["option3"] [duration_seconds]`** – Start a poll. Viewers vote with `!1`, `!2`, `!3`, etc. Duration defaults to 60 seconds. Max 10 options.
 - **`!trivia`** – Generate a random trivia question (4 multiple-choice options: a, b, c, d). Viewers answer with `!a`, `!b`, etc. Reveals correct answer and winners after 30 seconds.
@@ -92,16 +105,54 @@ Runtime state (user memories, chat history, etc.) is still stored separately und
 - `resources/` – Static configuration files (greetings, persona, lore, aliases, reward map).
 - `data/` – Persisted JSON state (created on demand when persistence is enabled).
 
-## Credentials and Token Sources
+## Credentials and Configuration
 
-Populate the fields in `CONFIG.twitch` and `CONFIG.ai` with secrets from the following locations:
+All bot credentials are configured directly in `main.js` in the `TWITCH_CREDENTIALS` and `GROQ_CREDENTIALS` objects. Update these values with your actual credentials.
 
-- **Twitch Chat OAuth Token (`oauthToken`)** – Generate via https://twitchapps.com/tmi/ while logged in as your bot account, or use the IRC OAuth flow.
-- **Twitch API App Credentials (`clientId`, `clientSecret`)** – Create an application at https://dev.twitch.tv/console/apps. Download the client secret once and store it securely.
-- **Twitch API Access/Refresh Tokens (`apiToken`, `refreshToken`)** – Use the OAuth Authorization Code flow for your Twitch app to obtain app access tokens with the required scopes (`channel:read:redemptions` for EventSub channel points). Save the refresh token so the bot can renew automatically.
-- **Groq API Key (`CONFIG.ai.groq.apiKey`)** – Create a key from the Groq console (https://console.groq.com/keys). Required for AI responses.
+### Obtaining Credentials
 
-You can load these secrets from environment variables or a private JSON/YAML file before instantiating `TwitchChatBot` to avoid hardcoding them in source control.
+**Twitch Chat OAuth Token** (`oauthToken`)
+- Generate via https://twitchapps.com/tmi/ while logged in as your bot account
+- Alternative: Use the IRC OAuth flow with your Twitch app
+
+**Twitch API Credentials** (`clientId`, `clientSecret`, `apiToken`, `refreshToken`)
+- Create an application at https://dev.twitch.tv/console/apps
+- Download the client secret and save it securely
+- Use the OAuth Authorization Code flow to obtain API access and refresh tokens
+- Required scopes: `channel:read:redemptions` (for EventSub channel points)
+
+**Groq API Key** (`GROQ_CREDENTIALS.apiKey`)
+- Create a key from the Groq console: https://console.groq.com/keys
+- Required for AI responses (trivia, adventures, inactivity messages)
+
+### Security Best Practices
+
+⚠️ **DO NOT commit real credentials to version control!**
+
+**For Development:**
+- Keep credentials in `main.js` locally only
+- Use `.gitignore` to prevent accidental commits:
+  ```
+  # .gitignore
+  main.js
+  credentials.js
+  .env
+  ```
+
+**For Production:**
+- Load credentials from environment variables before starting the bot
+- Use Docker secrets or a secrets manager (AWS Secrets Manager, HashiCorp Vault, etc.)
+- Create a separate `credentials.js` file and load it in `main.js`:
+  ```javascript
+  const { TWITCH_CREDENTIALS, GROQ_CREDENTIALS } = require('./credentials.js');
+  ```
+  Then add `credentials.js` to `.gitignore`
+
+### Deployment Options
+
+- Use a process manager such as `pm2`, Docker, or systemd to keep the bot online
+- Remember to expose the media overlay port (`8910` by default) if you want to load the browser overlay in OBS or similar tools
+- For long-running deployments, ensure the `data/` folder is accessible and writable for persistence
 
 ## Requirements
 
@@ -209,12 +260,15 @@ Automatically mentions users who haven't chatted for 15+ minutes with AI-generat
 
 ## Troubleshooting
 
-- **Bot exits immediately** – Double-check that `CONFIG.twitch.*` tokens are valid and the bot account has channel access.
-- **No AI replies** – Ensure Groq credentials are set and the chosen model is available.
-- **Overlay not showing** – Open `http://localhost:8910/overlay` in OBS/browser and verify rewards are mapped in `mediaRewards.json`.
-- **Games not starting** – Verify Groq API key is valid (used for trivia, adventures, and inactivity messages).
-- **Adventure ends too quickly** – This is intentional on hard difficulty; probability of death increases with difficulty level.
-- **No inactivity mentions** – Ensure users have been silent for 15+ minutes and check that `inactivityTracker` is running.
+- **Bot exits immediately on startup** – Verify all credentials in `main.js` are correctly filled in. Check that placeholder values like `your_oauth_token_here` have been replaced with actual tokens.
+- **Bot won't connect to Twitch** – Ensure the `oauthToken` is valid and the bot account has channel access. Verify `channel` name is correct.
+- **No AI replies to mentions** – Ensure Groq credentials are set correctly and the Groq API key is valid. Check logs for API errors.
+- **Overlay not showing** – Open `http://localhost:8910/overlay` in OBS/browser source and verify channel point rewards are mapped in `resources/mediaRewards.json`.
+- **Games not starting** – Verify Groq API key is valid (used for trivia, adventures, and inactivity shame messages).
+- **Adventure ends too quickly** – This is intentional on hard difficulty; probability of death increases with difficulty level. Easy mode has lower death probability.
+- **No inactivity shame mentions** – Ensure users have been silent for 15+ minutes and check logs to confirm `inactivityTracker` is running (happens every 2 minutes).
+- **Token refresh errors** – Verify `refreshToken`, `clientId`, and `clientSecret` are all correctly configured for the OAuth token refresh flow.
+- **EventSub WebSocket errors (429)** – This can indicate rate limiting or rapid reconnections. Check that credentials are correctly set and try restarting the bot.
 
 ## Architecture Notes
 

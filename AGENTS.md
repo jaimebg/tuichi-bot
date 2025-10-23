@@ -27,7 +27,14 @@ All documentation must be maintained in:
 ## Static Content & Secrets
 - All editable text/JSON assets (greetings, persona, lore, aliases, reward map) now live in `resources/`. Update `main.js` if you introduce new files so agents use `RESOURCES_DIR`.
 - Runtime state is persisted automatically to `data/` (created on demand). Never hardcode defaults into `src/intelligence`—they expect serialised Maps/Sets via the persistence helpers.
-- Replace the placeholder Twitch/Groq secrets in `main.js` before shipping. Prefer reading environment variables inside `CONFIG` so credentials stay out of version control.
+- **Credentials are hardcoded in `main.js`** at the top of the file in `TWITCH_CREDENTIALS` and `GROQ_CREDENTIALS` objects. Before shipping or committing to a public repository:
+  - Replace placeholder values (`your_oauth_token_here`, etc.) with actual credentials
+  - Consider using environment variables or a secrets manager in production
+  - **NEVER commit real credentials to version control** – use `.gitignore` for `.env` files and credential files
+  - For production deployments, either:
+    1. Load credentials from environment variables before running
+    2. Use a secrets management system (e.g., Docker secrets, AWS Secrets Manager, HashiCorp Vault)
+    3. Create a separate `credentials.js` file and add it to `.gitignore`
 
 ## Working Patterns
 
