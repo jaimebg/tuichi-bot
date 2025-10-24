@@ -75,6 +75,10 @@ class ChannelPointsWatcher {
             return null;
         }
         let response = await makeRequest(token);
+        if (response?.status === 429) {
+            log("warn", "Received 429 (Too Many Requests) from Twitch API - rate limited");
+            return response;
+        }
         if (response?.status === 401) {
             const refreshed = await this.refreshAccessTokenIfAvailable();
             if (!refreshed) {
@@ -195,6 +199,12 @@ class ChannelPointsWatcher {
 
         ws.on("error", (err) => {
             log("warn", `EventSub WebSocket error: ${err.message}`);
+            // Log additional error codes for better diagnostics
+            if (err.code === 'ECONNREFUSED') {
+                log("warn", "Connection refused - Twitch EventSub server may be temporarily unavailable");
+            } else if (err.code === 'ENOTFOUND') {
+                log("warn", "DNS resolution failed - check network connectivity");
+            }
         });
     }
 
@@ -204,8 +214,88 @@ class ChannelPointsWatcher {
         if (!this.started) {
             return;
         }
-        log("warn", `EventSub WebSocket closed (code ${code ?? 0}). Scheduling reconnect.`);
-        this.scheduleReconnect();
+
+        // Map WebSocket close codes to meaningful messages
+        let closeMessage = `EventSub WebSocket closed (code ${code ?? 0})`;
+        let is429 = false;
+
+        switch (code) {
+            case 1000:
+                closeMessage += " - Normal closure";
+                break;
+            case 1001:
+                closeMessage += " - Going away";
+                break;
+            case 1002:
+                closeMessage += " - Protocol error";
+                break;
+            case 1003:
+                closeMessage += " - Unsupported data";
+                break;
+            case 4000:
+                closeMessage += " - Unknown error";
+                break;
+            case 4001:
+                closeMessage += " - Invalid message";
+                break;
+            case 4002:
+                closeMessage += " - Session ID invalid";
+                is429 = true; // Treat as rate limit to force longer wait
+                break;
+            case 4007:
+                closeMessage += " - Policy violation (too many reconnects)";
+                is429 = true; // Definitely rate limited
+                break;
+            case 4008:
+                closeMessage += " - Message retry limit exceeded";
+                break;
+            case 4009:
+                closeMessage += " - Connection unused";
+                break;
+            case 4010:
+                closeMessage += " - Authorization failed";
+                break;
+            case 4011:
+                closeMessage += " - Internal server error";
+                break;
+            case 4012:
+                closeMessage += " - Stream temporarily unavailable";
+                break;
+            case 4013:
+                closeMessage += " - Subscription version invalid";
+                break;
+            case 4014:
+                closeMessage += " - User removed";
+                break;
+            case 4015:
+                closeMessage += " - User authorization revoked";
+                break;
+            case 4016:
+                closeMessage += " - Platform disconnected";
+                break;
+            case 4017:
+                closeMessage += " - User account closed";
+                break;
+            case 4018:
+                closeMessage += " - Client sent inbound traffic";
+                break;
+            case 4019:
+                closeMessage += " - Client failed ping-pong";
+                is429 = true; // Timeout, likely due to connection issues
+                break;
+            case 4020:
+                closeMessage += " - Subscription query limit exceeded";
+                is429 = true;
+                break;
+            case 4021:
+                closeMessage += " - User account not allowed";
+                break;
+            default:
+                break;
+        }
+
+        log("warn", `${closeMessage}. Scheduling reconnect.`);
+        this.scheduleReconnect(is429);
     }
 
     handleMessage(message) {
@@ -323,21 +413,30 @@ class ChannelPointsWatcher {
         }
     }
 
-    scheduleReconnect() {
+    scheduleReconnect(is429Error = false) {
         if (!this.started) {
             return;
         }
         if (this.reconnectTimer) {
             return;
         }
-        const delay = Math.min(this.currentReconnectDelay, this.maxReconnectMs);
-        log("info", `Reconnecting to Twitch EventSub in ${Math.round(delay / 1000)}s`);
+        // If it's a 429 rate limit error, use a much longer delay
+        let delay = Math.min(this.currentReconnectDelay, this.maxReconnectMs);
+        if (is429Error) {
+            delay = Math.max(delay, 30000); // At least 30 seconds for rate limit errors
+            log("warn", `EventSub received 429 (rate limit). Waiting ${Math.round(delay / 1000)}s before reconnecting.`);
+        } else {
+            log("info", `Reconnecting to Twitch EventSub in ${Math.round(delay / 1000)}s`);
+        }
+
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
             const target = this.reconnectUrl || this.socketUrl;
             this.connect(target);
         }, delay);
-        this.currentReconnectDelay = Math.min(this.currentReconnectDelay * 2, this.maxReconnectMs);
+
+        // Use gentler exponential backoff (1.5x instead of 2x) to avoid aggressive reconnection
+        this.currentReconnectDelay = Math.min(this.currentReconnectDelay * 1.5, this.maxReconnectMs);
     }
 
     reconnect(immediate = false) {
@@ -397,6 +496,21 @@ class ChannelPointsWatcher {
 
             if (!response) {
                 throw new Error("Subscription request failed: missing access token");
+            }
+
+            if (response.status === 429) {
+                log("warn", "Subscription request rate limited (429). Scheduling reconnect with longer delay.");
+                this.pendingSubscription = false;
+                this.scheduleReconnect(true);
+                return;
+            }
+
+            if (response.status === 401) {
+                log("warn", "Subscription failed with 401 - token may have expired. Attempting to refresh and reconnect.");
+                this.pendingSubscription = false;
+                this.subscriptionCreated = false;
+                this.reconnect();
+                return;
             }
 
             if (response.status === 409) {
