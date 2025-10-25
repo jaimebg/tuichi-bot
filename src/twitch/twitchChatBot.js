@@ -1395,49 +1395,86 @@ Ejemplo: !poll "¿Qué categoría?" "Gaming" "IRL" "Retro" 60`;
     // ===== SURVIVE COMMAND HANDLERS =====
     handleSurviveCommand(userKey, displayName, timestamp) {
         if (this.surviveManager.isActive()) {
+            // Game is active - record this player's survival attempt
             const recorded = this.surviveManager.recordSurvive(userKey);
-            if (recorded) {
-                const status = this.surviveManager.getStatus();
-                this.sendMessage(`✅ @${displayName} ha sobrevivido! Supervivientes: ${status.survivors}/${status.totalPlayers}`);
+            if (recorded && recorded.status === 'recorded') {
+                // Only announce every few survivals to avoid spam
+                if (recorded.survivorsCount % 3 === 0 || recorded.survivorsCount === 1) {
+                    const status = this.surviveManager.getStatus();
+                    this.sendMessage(`✅ @${displayName} sobrevivió! Ronda ${status.roundNumber}: ${recorded.survivorsCount}/${status.playersInRound} 🏃‍♂️`);
+                }
             }
             return;
         }
 
         // Start new survive game with current users
         const users = Array.from(this.presentUsers);
-        const startedData = this.surviveManager.startSurvive(users, 120000); // 2 minutes
+        const startedData = this.surviveManager.startSurvive(users, 30000); // 30 seconds per round
 
         if (!startedData) {
             this.sendMessage(`❌ Necesitas al menos 2 personas conectadas para jugar.`);
             return;
         }
 
-        this.sendMessage(`🎮 SURVIVE - Battle Royale de Chat!`);
+        this.sendMessage(`🎮 ¡SURVIVE - Battle Royale de Chat!`);
         this.sendMessage(`${startedData.message}`);
-        this.sendMessage(`Jugadores: ${startedData.count}`);
+        this.sendMessage(`Jugadores iniciales: ${startedData.count}`);
 
-        this.surviveManager.scheduleAutoEnd((results) => {
-            this.handleSurviveEnd(results);
+        // Schedule end of first round
+        this.surviveManager.scheduleRoundEnd((roundResult) => {
+            this.handleSurviveRoundEnd(roundResult);
         });
     }
 
-    handleSurviveEnd(results) {
-        if (!results) {
+    handleSurviveRoundEnd(roundResult) {
+        if (!roundResult) {
             return;
         }
 
-        let message = `🎮 SURVIVE terminado!\n`;
-        message += `Total de jugadores: ${results.totalPlayers}\n`;
+        const status = this.surviveManager.getStatus();
 
-        if (results.survivors.length > 0) {
-            message += `🏆 SUPERVIVIENTES (${results.survivors.length}): ${results.survivors.join(', ')}\n`;
-        } else {
-            message += `😱 ¡Nadie sobrevivió!\n`;
+        if (roundResult.eliminatedThisRound.length > 0) {
+            const eliminated = roundResult.eliminatedThisRound.join(', ');
+            this.sendMessage(`💀 Ronda ${status.roundNumber - 1}: Eliminados → ${eliminated}`);
         }
 
-        if (results.eliminated.length > 0) {
-            const eliminated = results.eliminated.slice(0, 10).join(', ');
-            message += `❌ Eliminados: ${eliminated}${results.eliminated.length > 10 ? ` +${results.eliminated.length - 10}` : ''}`;
+        if (!roundResult.continueGame) {
+            // Game has ended
+            this.handleSurviveEnd(roundResult);
+            return;
+        }
+
+        // Continue to next round
+        this.sendMessage(`\n🎮 Ronda ${roundResult.newRoundNumber}: ${roundResult.playersForNextRound} supervivientes restantes!`);
+        this.sendMessage(`¡Escribid !survive para sobrevivir!`);
+
+        // Schedule next round end
+        this.surviveManager.scheduleRoundEnd((nextRoundResult) => {
+            this.handleSurviveRoundEnd(nextRoundResult);
+        });
+    }
+
+    handleSurviveEnd(roundResult) {
+        if (!roundResult) {
+            return;
+        }
+
+        let message = `\n🏆 ¡FIN DEL SURVIVE!\n`;
+        message += `Total de jugadores: ${roundResult.totalPlayers}\n`;
+        message += `Rondas jugadas: ${roundResult.roundsPlayed}\n`;
+        message += `Eliminados totales: ${roundResult.losersCount}\n`;
+
+        if (roundResult.winners.length === 1) {
+            message += `\n🥇 ¡CAMPEÓN: ${roundResult.winners[0]}!`;
+        } else if (roundResult.winners.length > 1) {
+            message += `\n🥇 Ganadores: ${roundResult.winners.join(', ')}`;
+        } else {
+            message += `\n😱 ¡Nadie sobrevivió!`;
+        }
+
+        if (roundResult.eliminated.length > 0) {
+            const eliminated = roundResult.eliminated.slice(0, 10).join(', ');
+            message += `\n❌ Eliminados (${roundResult.eliminated.length}): ${eliminated}${roundResult.eliminated.length > 10 ? ` +${roundResult.eliminated.length - 10}` : ''}`;
         }
 
         this.sendLongMessage(message);

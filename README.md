@@ -10,7 +10,7 @@ A sophisticated Node.js Twitch chat bot for the `jaimevarecto` channel, featurin
 - **Interactive Adventures** (REDESIGNED): Story-driven adventures with `!aventura [theme] [difficulty]` featuring dynamic difficulty, death probability, and unpredictable endings
 - **Interactive Polls**: Create real-time chat polls with `!poll`; viewers vote with numbered options
 - **Trivia Game**: AI-generated trivia questions with 4 multiple-choice options via `!trivia`
-- **Survive Game**: Battle royale-style chat game where the last to write `!survive` is eliminated
+- **Survive Game** (v2.1): Multi-round battle royale where users write `!survive` each round to survive elimination
 - **Inactivity Mentions**: Automatic AI-generated messages mention inactive users (15+ min silent) with sarcastic/comedic shame
 - **Single Word Echo**: Randomly repeats single-word messages for engagement
 - **User Memory**: Tracks personality traits, conversation themes, and engagement patterns
@@ -84,7 +84,7 @@ Runtime state (user memories, chat history, etc.) is still stored separately und
 - **`!aventura [theme] [difficulty]`** – Start an interactive adventure. Difficulty options: `fácil` (15% death), `normal` (35% death, default), `difícil` (55% death). Adventures are dynamic and can end at any time based on decisions and probability. Warning: the story may conclude unexpectedly—viewers should agree on the safest action.
 - **`!poll "<question>" "option1" "option2" ["option3"] [duration_seconds]`** – Start a poll. Viewers vote with `!1`, `!2`, `!3`, etc. Duration defaults to 60 seconds. Max 10 options.
 - **`!trivia`** – Generate a random trivia question (4 multiple-choice options: a, b, c, d). Viewers answer with `!a`, `!b`, etc. Reveals correct answer and winners after 30 seconds.
-- **`!survive`** – Start a battle royale game. All connected users participate. Viewers write `!survive` to stay alive; last to write is eliminated after 2 minutes (+ 5s grace period).
+- **`!survive`** – Start a multi-round battle royale game. All connected users participate. Each round lasts 30 seconds—viewers must write `!survive` to avoid elimination. Those who don't write it are eliminated for that round. The game continues until only 1 player remains (the champion) or everyone is eliminated.
 
 ### Voting During Adventures
 - **`!1`**, **`!2`**, **`!3`**, **`!4`** – Vote for options during an active adventure.
@@ -200,19 +200,49 @@ AI-generated trivia questions with 4 multiple-choice options.
 - Reveals correct answer with explanation
 - Lists winners who answered correctly
 
-#### Survive Game (`!survive`)
-Battle royale-style game where the last user to write `!survive` is eliminated.
+#### Survive Game (`!survive`) – v2.1
+Multi-round elimination game where players survive by writing `!survive` each round.
 
 **Usage:**
 ```
 !survive
 ```
 
+**Game Flow:**
+1. Any user writes `!survive` to start the game (requires 2+ connected players)
+2. Each round lasts **30 seconds**
+3. Players must write `!survive` during each round to survive
+4. Those who DON'T write `!survive` in time are **permanently eliminated**
+5. Game continues with remaining players for the next round
+6. Game ends when only **1 player remains** (the champion) or **everyone is eliminated**
+
 **Features:**
-- All connected users participate
-- Duration: 2 minutes (+ 5s grace period for late entries)
-- Last to write `!survive` is eliminated
-- Shows winners and eliminated players at the end
+- **Multiple rounds**: Continues until 1 winner or all eliminated
+- **Per-round elimination**: Those who don't write `!survive` exit the game
+- **Progressive difficulty**: Fewer players each round = less chaos
+- **Announces elimination**: Shows who was eliminated each round
+- **Final results**: Shows champion, total eliminations, and rounds played
+- **Spam prevention**: Only announces every 3rd survival to reduce spam
+
+**Example Output:**
+```
+🎮 ¡SURVIVE - Battle Royale de Chat!
+¡Ronda 1! Escribid !survive para no ser eliminados.
+Jugadores iniciales: 12
+
+✅ superviviste! Ronda 1: 3/12 🏃‍♂️
+💀 Ronda 1: Eliminados → usuario1, usuario2, usuario3, usuario4, usuario5
+
+🎮 Ronda 2: 7 supervivientes restantes!
+¡Escribid !survive para sobrevivir!
+
+🏆 ¡FIN DEL SURVIVE!
+Total de jugadores: 12
+Rondas jugadas: 4
+Eliminados totales: 11
+
+🥇 ¡CAMPEÓN: usuario_ganador!
+```
 
 #### Adventures - Redesigned (`!aventura`)
 Completely redesigned adventure system with dynamic difficulty, death probability, and unpredictable endings.

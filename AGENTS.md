@@ -49,11 +49,11 @@ Each interactive game lives in `src/games/` and follows a consistent pattern:
 - **Cleanup**: Always implement `cancel{Game}()` to clear timers and state; call during bot shutdown via `twitchChatBot.shutdown()`
 - **Persistence**: Managers handle their own state; use `dataPersistence.js` helpers if you need to save game history
 
-### Existing Game Managers (v2.0)
+### Existing Game Managers (v2.1)
 - **`pollManager.js`** – Multiple-choice surveys with voting limits, auto-end on timer
 - **`adventureManager.js`** – Redesigned role-playing with difficulty scaling, death probabilities, dynamic rounds
 - **`triviaManager.js`** – AI-generated questions with timed multi-choice answers and explanations
-- **`surviveManager.js`** – Battle royale chat game with survival tracking and elimination
+- **`surviveManager.js`** – Multi-round battle royale where players write `!survive` each round to avoid elimination; continues until 1 survivor or all eliminated
 
 ### Intelligence Enhancements
 - **`inactivityTracker.js`** (v2.0) – Automatically generates AI-powered shame messages for inactive users; tracks per-channel inactivity thresholds and anti-spam delays
