@@ -125,7 +125,7 @@ class TwitchChatBot {
         this.recentChat = new RecentChatTracker(intelligence?.recentChatLimit, intelligence?.contextWindowMinutes);
         this.conversationThreads = new ConversationThreads(intelligence?.conversationThreads);
         this.messageLogger = new MessageLogger(intelligence?.messageLogMaxSize ?? 5000, intelligence?.messageLogCleanupMs ?? 60000);
-        this.inactivityTracker = new InactivityTracker(15, 90000); // Check every 90 seconds for inactive users
+        this.inactivityTracker = new InactivityTracker(15, 90000, this.greetingIgnoreLogins); // Check every 90 seconds for inactive users
         this.streamStartTime = Date.now();
         this.lastDataSave = 0;
 

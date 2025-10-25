@@ -5,13 +5,14 @@ const { log } = require("../logger");
  * to potentially trigger AI-generated shame messages
  */
 class InactivityTracker {
-    constructor(inactivityThresholdMinutes = 15, checkIntervalMs = 60000) {
+    constructor(inactivityThresholdMinutes = 15, checkIntervalMs = 60000, ignoredUsers = new Set()) {
         this.userLastActivity = new Map(); // userKey -> {timestamp, displayName}
         this.inactivityThresholdMs = inactivityThresholdMinutes * 60 * 1000;
         this.checkIntervalMs = checkIntervalMs;
         this.shameTracker = new Map(); // userKey -> last time we shamed them
         this.minTimeBeweenShames = 30 * 60 * 1000; // Don't shame same user more than every 30 mins
         this.lastCheckTime = Date.now();
+        this.ignoredUsers = ignoredUsers;
     }
 
     /**
@@ -61,8 +62,11 @@ class InactivityTracker {
 
         const now = Date.now();
 
-        // Find the most inactive user who hasn't been shamed recently
+        // Find the most inactive user who hasn't been shamed recently and is not ignored
         for (const user of inactive.sort((a, b) => b.inactiveForMs - a.inactiveForMs)) {
+            if (this.ignoredUsers.has(user.userKey)) {
+                continue; // Skip ignored users
+            }
             const lastShame = this.shameTracker.get(user.userKey) || 0;
             if (now - lastShame >= this.minTimeBeweenShames) {
                 return user;
