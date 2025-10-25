@@ -131,7 +131,7 @@ class TwitchChatBot {
 
         // Game managers
         this.pollManager = new PollManager();
-        this.adventureManager = new AdventureManager(groqConfig);
+        this.adventureManager = new AdventureManager(groqConfig, this.lore);
         this.triviaManager = new TriviaManager(groqConfig);
         this.surviveManager = new SurviveManager();
         this.inactivityCheckInterval = null;
@@ -1480,31 +1480,16 @@ Ejemplo: !poll "¿Qué categoría?" "Gaming" "IRL" "Retro" 60`;
         this.sendLongMessage(message);
     }
 
-    // ===== ADVENTURE COMMAND HANDLERS (NEW) =====
+    // ===== ADVENTURE COMMAND HANDLERS =====
     async handleAdventureCommand(userKey, displayName, message, tags, timestamp) {
         const parts = message.split(/\s+/).slice(1);
         let theme = '';
-        let difficulty = 'normal';
 
-        // Parse arguments: !aventura [theme] [difficulty]
+        // Parse theme: !aventura [theme]
         if (parts.length === 0) {
             theme = 'una aventura de las Pentis';
-        } else if (parts.length === 1) {
-            const last = parts[0].toLowerCase();
-            if (['fácil', 'normal', 'difícil'].includes(last)) {
-                difficulty = last;
-                theme = 'una aventura de las Pentis';
-            } else {
-                theme = parts.join(' ');
-            }
         } else {
-            const last = parts[parts.length - 1].toLowerCase();
-            if (['fácil', 'normal', 'difícil'].includes(last)) {
-                difficulty = last;
-                theme = parts.slice(0, -1).join(' ');
-            } else {
-                theme = parts.join(' ');
-            }
+            theme = parts.join(' ');
         }
 
         if (this.adventureManager.isActive()) {
@@ -1512,20 +1497,19 @@ Ejemplo: !poll "¿Qué categoría?" "Gaming" "IRL" "Retro" 60`;
             return;
         }
 
-        const result = await this.adventureManager.startAdventure(theme, difficulty, (msgs) => this.fetchGroqResponse(msgs));
+        const result = await this.adventureManager.startAdventure(theme, (msgs) => this.fetchGroqResponse(msgs));
         if (!result) {
             this.sendMessage(`❌ No pude iniciar la aventura. Intenta más tarde.`);
             return;
         }
 
-        this.sendMessage(`⚔️ AVENTURA (${difficulty.toUpperCase()}): ${result.story}`);
+        this.sendMessage(`⚔️ AVENTURA: ${result.story}`);
 
         for (let i = 0; i < result.options.length; i++) {
             this.sendMessage(`${i + 1}) ${result.options[i]}`);
         }
 
         this.sendMessage(`¡Votad con !${Array.from({ length: result.options.length }, (_, i) => i + 1).join(' o !')} en 60 segundos!`);
-        this.sendMessage(result.warning);
 
         // Schedule voting end
         setTimeout(() => this.handleAdventureVotingEnd(), 60000);
@@ -1562,17 +1546,12 @@ Ejemplo: !poll "¿Qué categoría?" "Gaming" "IRL" "Retro" 60`;
             }
 
             this.sendMessage(`¡Votad de nuevo en 60 segundos!`);
-            this.sendMessage(continueResult.warning);
 
             setTimeout(() => this.handleAdventureVotingEnd(), 60000);
         } else {
             // Adventure ended
             this.sendMessage(`⚰️ FIN DE LA AVENTURA (Ronda ${continueResult.round}):`);
             this.sendMessage(continueResult.ending);
-
-            if (continueResult.reason === 'death') {
-                this.sendMessage(`💀 Todos murieron heroicamente.`);
-            }
         }
     }
 
