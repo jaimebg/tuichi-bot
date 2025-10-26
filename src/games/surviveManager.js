@@ -110,6 +110,7 @@ class SurviveManager {
             return null;
         }
 
+        const currentRoundNumber = this.activeSurvive.roundNumber;
         const eliminatedThisRound = this.getEliminatedThisRound();
 
         // Mark them as permanently eliminated
@@ -132,6 +133,7 @@ class SurviveManager {
             return {
                 ...finalSnapshot,
                 eliminatedThisRound,
+                roundNumber: currentRoundNumber,
                 continueGame: false,
                 reason: survivorsThisRoundCount === 0 ? "everyone_died" : "last_survivor"
             };
@@ -147,6 +149,7 @@ class SurviveManager {
         return {
             eliminatedThisRound,
             continueGame: true,
+            roundNumber: currentRoundNumber,
             newRoundNumber: this.activeSurvive.roundNumber,
             playersForNextRound: this.activeSurvive.currentRoundPlayers.size
         };

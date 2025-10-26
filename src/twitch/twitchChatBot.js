@@ -1432,10 +1432,16 @@ Ejemplo: !poll "¿Qué categoría?" "Gaming" "IRL" "Retro" 60`;
         }
 
         const status = this.surviveManager.getStatus();
+        const roundNumber = typeof roundResult.roundNumber === 'number'
+            ? roundResult.roundNumber
+            : (status?.roundNumber ?? 1);
+        const eliminatedThisRound = Array.isArray(roundResult.eliminatedThisRound)
+            ? roundResult.eliminatedThisRound
+            : [];
 
-        if (roundResult.eliminatedThisRound.length > 0) {
-            const eliminated = roundResult.eliminatedThisRound.join(', ');
-            this.sendMessage(`💀 Ronda ${status.roundNumber - 1}: Eliminados → ${eliminated}`);
+        if (eliminatedThisRound.length > 0) {
+            const eliminated = eliminatedThisRound.join(', ');
+            this.sendMessage(`💀 Ronda ${roundNumber}: Eliminados → ${eliminated}`);
         }
 
         if (!roundResult.continueGame) {
@@ -1455,17 +1461,22 @@ Ejemplo: !poll "¿Qué categoría?" "Gaming" "IRL" "Retro" 60`;
     }
 
     handleSurviveEnd(roundResult) {
-        if (!roundResult) {
-            return;
-        }
-
+        const baseResult = roundResult && typeof roundResult === 'object' ? roundResult : {};
         const finalResults = this.surviveManager.endSurvive();
-        const summary = finalResults ? { ...roundResult, ...finalResults } : roundResult;
-        const totalPlayers = summary.totalPlayers ?? 0;
-        const roundsPlayed = summary.roundsPlayed ?? 1;
-        const winners = Array.isArray(summary.winners) ? summary.winners : [];
-        const eliminated = Array.isArray(summary.eliminated) ? summary.eliminated : [];
-        const losersCount = summary.losersCount ?? eliminated.length;
+        const mergedFinalResults = finalResults && typeof finalResults === 'object' ? finalResults : {};
+        const summary = { ...baseResult, ...mergedFinalResults };
+
+        const totalPlayers = typeof summary.totalPlayers === 'number' && !Number.isNaN(summary.totalPlayers)
+            ? summary.totalPlayers
+            : (typeof summary.count === 'number' ? summary.count : 0);
+        const roundsPlayed = typeof summary.roundsPlayed === 'number' && !Number.isNaN(summary.roundsPlayed)
+            ? summary.roundsPlayed
+            : (typeof summary.roundNumber === 'number' ? summary.roundNumber : 1);
+        const winners = Array.isArray(summary.winners) ? summary.winners.filter(Boolean) : [];
+        const eliminated = Array.isArray(summary.eliminated) ? summary.eliminated.filter(Boolean) : [];
+        const losersCount = typeof summary.losersCount === 'number' && !Number.isNaN(summary.losersCount)
+            ? summary.losersCount
+            : eliminated.length;
 
         let message = `\n🏆 ¡FIN DEL SURVIVE!\n`;
         message += `Total de jugadores: ${totalPlayers}\n`;
