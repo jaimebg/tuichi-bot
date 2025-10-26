@@ -1459,22 +1459,30 @@ Ejemplo: !poll "¿Qué categoría?" "Gaming" "IRL" "Retro" 60`;
             return;
         }
 
-        let message = `\n🏆 ¡FIN DEL SURVIVE!\n`;
-        message += `Total de jugadores: ${roundResult.totalPlayers}\n`;
-        message += `Rondas jugadas: ${roundResult.roundsPlayed}\n`;
-        message += `Eliminados totales: ${roundResult.losersCount}\n`;
+        const finalResults = this.surviveManager.endSurvive();
+        const summary = finalResults ? { ...roundResult, ...finalResults } : roundResult;
+        const totalPlayers = summary.totalPlayers ?? 0;
+        const roundsPlayed = summary.roundsPlayed ?? 1;
+        const winners = Array.isArray(summary.winners) ? summary.winners : [];
+        const eliminated = Array.isArray(summary.eliminated) ? summary.eliminated : [];
+        const losersCount = summary.losersCount ?? eliminated.length;
 
-        if (roundResult.winners.length === 1) {
-            message += `\n🥇 ¡CAMPEÓN: ${roundResult.winners[0]}!`;
-        } else if (roundResult.winners.length > 1) {
-            message += `\n🥇 Ganadores: ${roundResult.winners.join(', ')}`;
+        let message = `\n🏆 ¡FIN DEL SURVIVE!\n`;
+        message += `Total de jugadores: ${totalPlayers}\n`;
+        message += `Rondas jugadas: ${roundsPlayed}\n`;
+        message += `Eliminados totales: ${losersCount}\n`;
+
+        if (winners.length === 1) {
+            message += `\n🥇 ¡CAMPEÓN: ${winners[0]}!`;
+        } else if (winners.length > 1) {
+            message += `\n🥇 Ganadores: ${winners.join(', ')}`;
         } else {
             message += `\n😱 ¡Nadie sobrevivió!`;
         }
 
-        if (roundResult.eliminated.length > 0) {
-            const eliminated = roundResult.eliminated.slice(0, 10).join(', ');
-            message += `\n❌ Eliminados (${roundResult.eliminated.length}): ${eliminated}${roundResult.eliminated.length > 10 ? ` +${roundResult.eliminated.length - 10}` : ''}`;
+        if (eliminated.length > 0) {
+            const eliminatedPreview = eliminated.slice(0, 10).join(', ');
+            message += `\n❌ Eliminados (${eliminated.length}): ${eliminatedPreview}${eliminated.length > 10 ? ` +${eliminated.length - 10}` : ''}`;
         }
 
         this.sendLongMessage(message);

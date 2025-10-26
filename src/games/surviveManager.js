@@ -55,7 +55,7 @@ class SurviveManager {
      * @returns {object|null} - {status, survivorsCount}
      */
     recordSurvive(userKey) {
-        if (!this.activeSurvive) {
+        if (!this.activeSurvive || this.activeSurvive.hasEnded) {
             return null;
         }
 
@@ -117,26 +117,23 @@ class SurviveManager {
             this.eliminated.add(player);
         }
 
-        log("debug", `Round ${this.activeSurvive.roundNumber}: ${eliminatedThisRound.length} eliminated. Survivors: ${this.activeSurvive.survivorsThisRound.size}`);
+        const survivorsThisRoundCount = this.activeSurvive.survivorsThisRound.size;
+        log(
+            "debug",
+            `Round ${this.activeSurvive.roundNumber}: ${eliminatedThisRound.length} eliminated. Survivors: ${survivorsThisRoundCount}`
+        );
 
         // Check if game should continue
-        if (this.activeSurvive.survivorsThisRound.size === 1) {
-            // We have a winner
-            return {
-                eliminatedThisRound,
-                continueGame: false,
-                winner: Array.from(this.activeSurvive.survivorsThisRound)[0],
-                reason: 'last_survivor'
-            };
-        }
+        if (survivorsThisRoundCount <= 1) {
+            // Game ends – either single winner or nobody survived
+            const finalSnapshot = this.getResults() || {};
+            this.activeSurvive.hasEnded = true;
 
-        if (this.activeSurvive.survivorsThisRound.size === 0) {
-            // Everyone died
             return {
+                ...finalSnapshot,
                 eliminatedThisRound,
                 continueGame: false,
-                winner: null,
-                reason: 'everyone_died'
+                reason: survivorsThisRoundCount === 0 ? "everyone_died" : "last_survivor"
             };
         }
 
@@ -223,7 +220,16 @@ class SurviveManager {
             this.roundTimer = null;
         }
 
-        log("debug", `Survive game ended after ${results.roundsPlayed} rounds. Winners: ${results.winners.join(', ')}`);
+        if (!results) {
+            log("warn", "Survive game ended but no results were available");
+            return null;
+        }
+
+        const winnersList = Array.isArray(results.winners) ? results.winners : [];
+        log(
+            "debug",
+            `Survive game ended after ${results.roundsPlayed} rounds. Winners: ${winnersList.join(', ') || 'ninguno'}`
+        );
 
         return results;
     }
