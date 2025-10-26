@@ -20,10 +20,12 @@ class AdventureManager {
             return null; // Adventure already active
         }
 
-        const prompt = `Inicia una aventura de rol básica con el tema: ${theme}.
+        const prompt = `Inicia una aventura de rol con el tema: ${theme}.
 
-Crea una situación inicial interesante. Describe el escenario y da 3 opciones de acción.
-Manténlo en español, divertido, breve (no más de 500 caracteres).
+Cuenta la escena inicial en 2-3 frases que presenten el conflicto, el tono y algún detalle sensorial o gracioso.
+La narrativa debe avanzar (no solo presentar opciones) y dejar claro por qué la situación importa.
+Después de la narración, plantea exactamente 3 opciones de acción distintas con verbos y una pista de su consecuencia.
+Máximo 600 caracteres en total, en español con humor sarcástico ligero.
 
 Responde en JSON: {"story": "Situación inicial", "options": ["Opción 1", "Opción 2", "Opción 3"]}`;
 
@@ -75,7 +77,8 @@ ${this.lore}`
                 round: 1,
                 votes: new Map(),
                 voters: new Set(),
-                previousChoices: []
+                previousChoices: [],
+                storySegments: story ? [story] : []
             };
 
             // Initialize vote counts
@@ -156,22 +159,31 @@ ${this.lore}`
         this.activeAdventure.previousChoices.push(chosenOption);
         this.activeAdventure.round++;
 
+        if (!Array.isArray(this.activeAdventure.storySegments) || !this.activeAdventure.storySegments.length) {
+            this.activeAdventure.storySegments = this.activeAdventure.story ? [this.activeAdventure.story] : [];
+        }
+
         // Max 4 rounds before ending
         if (this.activeAdventure.round > 4) {
             return await this.endAdventure(chosenOption, 'end', fetchGroqResponse);
         }
 
         // Continue adventure
+        const contextWindow = this.activeAdventure.storySegments.slice(-3).join(' ') || "La aventura acaba de comenzar.";
+        const choicesSummary = this.activeAdventure.previousChoices.length
+            ? this.activeAdventure.previousChoices.map((choice, index) => `${index + 1}. ${choice}`).join(' | ')
+            : "Aún no se han tomado decisiones.";
+
         const prompt = `Continúa la aventura de rol.
-Historia: ${this.activeAdventure.story}
-Elecciones previas: ${this.activeAdventure.previousChoices.join(' → ')}
-Acción elegida: ${chosenOption}
+Contexto reciente: ${contextWindow}
+Elecciones acumuladas: ${choicesSummary}
+Acción actual de la comunidad: ${chosenOption}
 
-Continúa la historia de forma divertida e interesante. Describe las consecuencias de la acción.
-Presenta 3 nuevas opciones de acción.
+Escribe 2-3 frases en español que narren claramente la consecuencia inmediata, cómo cambia la situación y añade un giro o problema fresco con humor sarcástico ligero. Debe sentirse como un paso narrativo real, no un resumen.
+Cierra con exactamente 3 nuevas opciones distintas, cada una con verbo y una pista de lo que provocará.
+Máximo 550 caracteres en total.
 
-Breve (400 caracteres máx), en español.
-JSON: {"story": "Continuación", "options": ["Opción 1", "Opción 2", "Opción 3"]}`;
+Responde en JSON: {"story": "Continuación", "options": ["Opción 1", "Opción 2", "Opción 3"]}`;
 
         const chatMessages = [
             {
@@ -216,6 +228,7 @@ ${this.lore}`
             this.activeAdventure.options = newOptions.slice(0, 4);
             this.activeAdventure.votes = new Map();
             this.activeAdventure.voters = new Set();
+            this.activeAdventure.storySegments.push(newStory);
 
             for (let i = 0; i < this.activeAdventure.options.length; i++) {
                 this.activeAdventure.votes.set(i + 1, 0);
@@ -240,13 +253,22 @@ ${this.lore}`
             return null;
         }
 
-        const prompt = `Conclusión de aventura de rol.
-Historia: ${this.activeAdventure.story}
-Última acción: ${lastChoice}
+        const storySoFar = (Array.isArray(this.activeAdventure.storySegments) && this.activeAdventure.storySegments.length)
+            ? this.activeAdventure.storySegments.join(' ')
+            : (this.activeAdventure.story || "La aventura fue breve pero intensa.");
 
-Describe el FINAL de forma divertida y memorable (victoria, escape, giro inesperado, etc.).
-Breve epílogo (250 caracteres máx), en español, sarcástico.
-JSON: {"ending": "Epílogo"}`;
+        const choicesSummary = this.activeAdventure.previousChoices.length
+            ? this.activeAdventure.previousChoices.map((choice, index) => `${index + 1}. ${choice}`).join(' | ')
+            : "La comunidad no tomó decisiones destacables.";
+
+        const prompt = `Conclusión de aventura de rol.
+Historia completa: ${storySoFar}
+Decisiones tomadas: ${choicesSummary}
+Última acción destacada: ${lastChoice}
+
+Redacta un epílogo de 3-4 frases (máx 500 caracteres), en español, que conecte las decisiones con un desenlace memorable. Incluye consecuencias claras, un toque sarcástico y una línea final que deje sensación de cierre o gancho futuro.
+
+Responde en JSON: {"ending": "Epílogo"}`;
 
         const chatMessages = [
             {
@@ -262,7 +284,7 @@ ${this.lore}`
 
         try {
             const aiReply = await fetchGroqResponse(chatMessages);
-            const finalMessage = clampResponseLength(aiReply, 400);
+            const finalMessage = clampResponseLength(aiReply, 500);
 
             let ending = finalMessage;
             try {
@@ -318,7 +340,8 @@ ${this.lore}`
             options: this.activeAdventure.options,
             difficulty: this.activeAdventure.difficulty,
             voters: this.activeAdventure.voters.size,
-            theme: this.activeAdventure.theme
+            theme: this.activeAdventure.theme,
+            history: Array.isArray(this.activeAdventure.storySegments) ? [...this.activeAdventure.storySegments] : []
         };
     }
 
