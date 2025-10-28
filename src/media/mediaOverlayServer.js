@@ -368,6 +368,22 @@ class MediaOverlayServer {
         return true;
     }
 
+    handlePlaybackInfo(playbackId, info = {}) {
+        if (!this.isPlaying) {
+            return false;
+        }
+        if (this.activePlaybackId && playbackId && playbackId !== this.activePlaybackId) {
+            return false;
+        }
+        const durationMs = Number(info.durationMs);
+        if (!Number.isFinite(durationMs) || durationMs <= 0) {
+            return false;
+        }
+        const bufferMs = Number.isFinite(info.bufferMs) ? Number(info.bufferMs) : 750;
+        this.scheduleFallbackClear(playbackId || this.activePlaybackId, durationMs + bufferMs, this.activeKeepVisible);
+        return true;
+    }
+
     handleOverlayEvent(req, res) {
         let rawBody = "";
         req.on("data", (chunk) => {
@@ -409,6 +425,14 @@ class MediaOverlayServer {
                 if (type === "playbackComplete") {
                     this.handlePlaybackComplete(payload?.id || null);
                     res.writeHead(204, {
+                        "Access-Control-Allow-Origin": "*"
+                    });
+                    res.end();
+                    return;
+                }
+                if (type === "playbackInfo") {
+                    const applied = this.handlePlaybackInfo(payload?.id || null, payload || {});
+                    res.writeHead(applied ? 204 : 202, {
                         "Access-Control-Allow-Origin": "*"
                     });
                     res.end();
@@ -648,6 +672,18 @@ audio { display: none; }
         }, timeout + 250);
     }
 
+    function postOverlayEvent(payload) {
+        if (!payload || typeof payload !== 'object') {
+            return;
+        }
+        fetch('events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            keepalive: true
+        }).catch(() => {});
+    }
+
     function notifyPlaybackComplete(reason) {
         if (!currentPlaybackId || hasNotifiedCompletion) {
             return;
@@ -658,12 +694,22 @@ audio { display: none; }
         if (reason) {
             payload.reason = reason;
         }
-        fetch('events', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-            keepalive: true
-        }).catch(() => {});
+        postOverlayEvent(payload);
+    }
+
+    function notifyPlaybackInfo(durationMs) {
+        if (!currentPlaybackId) {
+            return;
+        }
+        if (!Number.isFinite(durationMs) || durationMs <= 0) {
+            return;
+        }
+        postOverlayEvent({
+            type: 'playbackInfo',
+            id: currentPlaybackId,
+            durationMs: durationMs,
+            bufferMs: 750
+        });
     }
 
     function handleMedia(update) {
@@ -695,6 +741,7 @@ audio { display: none; }
                 const mediaDuration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration * 1000 : duration;
                 scheduleHide(mediaDuration);
                 scheduleCompletion(mediaDuration);
+                notifyPlaybackInfo(mediaDuration);
             };
             audio.src = action.url;
             if (typeof action.volume === 'number') {
@@ -704,6 +751,7 @@ audio { display: none; }
             audio.muted = !!action.muted;
             scheduleHide(duration);
             scheduleCompletion(duration);
+            notifyPlaybackInfo(duration);
             audio.play().catch(() => {
                 notifyPlaybackComplete('playRejected');
                 reset();
@@ -713,6 +761,7 @@ audio { display: none; }
             image.classList.remove('hidden');
             scheduleHide(duration);
             scheduleCompletion(duration);
+            notifyPlaybackInfo(duration);
         } else {
             video.onended = () => {
                 notifyPlaybackComplete('ended');
@@ -724,6 +773,7 @@ audio { display: none; }
                 const mediaDuration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration * 1000 : duration;
                 scheduleHide(mediaDuration);
                 scheduleCompletion(mediaDuration);
+                notifyPlaybackInfo(mediaDuration);
             };
             video.src = action.url;
             video.loop = !!action.loop;
@@ -743,6 +793,7 @@ audio { display: none; }
             video.classList.remove('hidden');
             scheduleHide(duration);
             scheduleCompletion(duration);
+            notifyPlaybackInfo(duration);
             const playPromise = video.play();
             if (playPromise && typeof playPromise.catch === 'function') {
                 playPromise.catch((err) => {
