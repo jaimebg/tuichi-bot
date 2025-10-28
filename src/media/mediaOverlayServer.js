@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
+const crypto = require("crypto");
 const { log } = require("../logger");
 
 class MediaOverlayServer {
@@ -19,8 +20,22 @@ class MediaOverlayServer {
         this.started = false;
         this.queue = [];
         this.isPlaying = false;
+        this.activePlaybackId = null;
+        this.playbackCounter = 0;
+        this.activeKeepVisible = false;
 
         this.loadRewardConfig(config);
+    }
+
+    generatePlaybackId() {
+        if (typeof crypto.randomUUID === "function") {
+            return crypto.randomUUID();
+        }
+        this.playbackCounter += 1;
+        if (this.playbackCounter > Number.MAX_SAFE_INTEGER) {
+            this.playbackCounter = 1;
+        }
+        return `${Date.now()}-${this.playbackCounter}`;
     }
 
     setRewardMap(map) {
@@ -196,6 +211,10 @@ class MediaOverlayServer {
             res.end(this.buildOverlayHtml());
             return;
         }
+        if (req.method === "POST" && url.pathname === "/events") {
+            this.handleOverlayEvent(req, res);
+            return;
+        }
         if (req.method === "GET" && url.pathname === "/events") {
             this.startEventStream(req, res);
             return;
@@ -274,7 +293,7 @@ class MediaOverlayServer {
         }
     }
 
-    scheduleClear(durationMs, shouldKeepVisible) {
+    scheduleFallbackClear(playbackId, durationMs, shouldKeepVisible) {
         if (shouldKeepVisible) {
             return;
         }
@@ -283,14 +302,41 @@ class MediaOverlayServer {
         }
         const timeout = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : this.displayDurationMs;
         this.currentClearTimer = setTimeout(() => {
-            this.clearDisplay();
+            this.handlePlaybackTimeout(playbackId);
         }, timeout);
     }
 
-    clearDisplay() {
-        this.currentClearTimer = null;
-        this.broadcast({ type: "clear", timestamp: Date.now() });
+    handlePlaybackTimeout(playbackId) {
+        if (!this.isPlaying) {
+            return;
+        }
+        if (this.activePlaybackId && playbackId && playbackId !== this.activePlaybackId) {
+            return;
+        }
+        log("debug", `Media overlay playback ${playbackId || "unknown"} reached fallback timeout.`);
+        this.clearDisplay("timeout");
+    }
+
+    clearDisplay(reason = "clear") {
+        if (this.currentClearTimer) {
+            clearTimeout(this.currentClearTimer);
+            this.currentClearTimer = null;
+        }
+        const shouldBroadcastClear = !this.activeKeepVisible || reason !== "complete";
+        if (shouldBroadcastClear) {
+            const payload = {
+                type: "clear",
+                timestamp: Date.now(),
+                reason
+            };
+            if (this.activePlaybackId) {
+                payload.playbackId = this.activePlaybackId;
+            }
+            this.broadcast(payload);
+        }
         this.isPlaying = false;
+        this.activePlaybackId = null;
+        this.activeKeepVisible = false;
         this.processQueue();
     }
 
@@ -299,10 +345,93 @@ class MediaOverlayServer {
             return;
         }
         const item = this.queue.shift();
+        if (!item.id) {
+            item.id = this.generatePlaybackId();
+        }
+        const action = item.action || {};
         this.isPlaying = true;
+        this.activePlaybackId = item.id;
+        this.activeKeepVisible = Boolean(action?.loop || item.keepVisible);
         this.broadcast(item);
-        const action = item.action;
-        this.scheduleClear(action.durationMs, action.loop || item.keepVisible);
+        this.scheduleFallbackClear(item.id, action.durationMs, action.loop || item.keepVisible);
+    }
+
+    handlePlaybackComplete(playbackId) {
+        if (!this.isPlaying) {
+            return false;
+        }
+        if (this.activePlaybackId && playbackId && playbackId !== this.activePlaybackId) {
+            log("debug", `Received playbackComplete for stale playback ${playbackId}`);
+            return false;
+        }
+        this.clearDisplay("complete");
+        return true;
+    }
+
+    handleOverlayEvent(req, res) {
+        let rawBody = "";
+        req.on("data", (chunk) => {
+            rawBody += chunk.toString("utf8");
+            if (rawBody.length > 1_048_576) {
+                rawBody = "";
+                try {
+                    res.writeHead(413, {
+                        "Content-Type": "application/json",
+                        "Access-Control-Allow-Origin": "*"
+                    });
+                    res.end(JSON.stringify({ error: "Payload too large" }));
+                } catch (_) {
+                    // ignore
+                } finally {
+                    req.destroy();
+                }
+            }
+        });
+        req.on("end", () => {
+            if (!res.writableEnded) {
+                let payload = null;
+                if (rawBody.trim()) {
+                    try {
+                        payload = JSON.parse(rawBody);
+                    } catch (err) {
+                        res.writeHead(400, {
+                            "Content-Type": "application/json",
+                            "Access-Control-Allow-Origin": "*"
+                        });
+                        res.end(JSON.stringify({ error: "Invalid JSON body" }));
+                        return;
+                    }
+                } else {
+                    payload = {};
+                }
+
+                const type = payload?.type;
+                if (type === "playbackComplete") {
+                    this.handlePlaybackComplete(payload?.id || null);
+                    res.writeHead(204, {
+                        "Access-Control-Allow-Origin": "*"
+                    });
+                    res.end();
+                    return;
+                }
+
+                res.writeHead(400, {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*"
+                });
+                res.end(JSON.stringify({ error: "Unsupported overlay event type" }));
+            }
+        });
+        req.on("error", (err) => {
+            log("debug", `Overlay event request error: ${err.message}`);
+            if (!res.writableEnded) {
+                res.writeHead(500, {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*"
+                });
+                res.end(JSON.stringify({ error: "Server error" }));
+            }
+        });
     }
 
     getActionForRedemption(redemption) {
@@ -333,9 +462,11 @@ class MediaOverlayServer {
             ...action,
             persist
         };
+        const playbackId = this.generatePlaybackId();
 
         const payload = {
             type: "media",
+            id: playbackId,
             action: actionPayload,
             context: {
                 rewardId: redemption.reward?.id || null,
@@ -367,9 +498,11 @@ class MediaOverlayServer {
             ...action,
             persist
         };
+        const playbackId = this.generatePlaybackId();
 
         const payload = {
             type: "media",
+            id: playbackId,
             action: actionPayload,
             context: {
                 rewardId: null,
@@ -421,12 +554,28 @@ audio { display: none; }
     const audio = document.getElementById('media-audio');
     const caption = document.getElementById('caption');
     let hideTimer = null;
+    let completionTimer = null;
+    let currentPlaybackId = null;
+    let hasNotifiedCompletion = false;
+    let keepVisibleCurrent = false;
 
-    function reset() {
+    function clearHideTimer() {
         if (hideTimer) {
             clearTimeout(hideTimer);
             hideTimer = null;
         }
+    }
+
+    function clearCompletionTimer() {
+        if (completionTimer) {
+            clearTimeout(completionTimer);
+            completionTimer = null;
+        }
+    }
+
+    function reset() {
+        clearHideTimer();
+        clearCompletionTimer();
         video.pause();
         video.removeAttribute('src');
         video.load();
@@ -435,17 +584,25 @@ audio { display: none; }
         video.volume = 1;
         video.classList.add('hidden');
         video.onended = null;
+        video.onloadedmetadata = null;
+        video.onerror = null;
         audio.pause();
         audio.removeAttribute('src');
         audio.load();
         audio.loop = false;
         audio.muted = false;
         audio.volume = 1;
+        audio.onended = null;
+        audio.onloadedmetadata = null;
+        audio.onerror = null;
         image.src = '';
         image.classList.add('hidden');
         caption.textContent = '';
         caption.classList.add('hidden');
         container.className = 'media-container hidden';
+        currentPlaybackId = null;
+        hasNotifiedCompletion = false;
+        keepVisibleCurrent = false;
     }
 
     function applyCaptionTemplate(text, context) {
@@ -466,17 +623,47 @@ audio { display: none; }
         }
     }
 
-    function scheduleHide(durationMs, keepVisible) {
-        if (hideTimer) {
-            clearTimeout(hideTimer);
-            hideTimer = null;
-        }
-        if (keepVisible) {
+    function scheduleHide(durationMs) {
+        clearHideTimer();
+        if (keepVisibleCurrent) {
             return;
         }
+        const timeout = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 5000;
         hideTimer = setTimeout(() => {
+            if (!hasNotifiedCompletion) {
+                notifyPlaybackComplete('timeout');
+            }
             reset();
-        }, durationMs > 0 ? durationMs : 5000);
+        }, timeout);
+    }
+
+    function scheduleCompletion(durationMs) {
+        if (!currentPlaybackId) {
+            return;
+        }
+        clearCompletionTimer();
+        const timeout = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 5000;
+        completionTimer = setTimeout(() => {
+            notifyPlaybackComplete('timeout');
+        }, timeout + 250);
+    }
+
+    function notifyPlaybackComplete(reason) {
+        if (!currentPlaybackId || hasNotifiedCompletion) {
+            return;
+        }
+        hasNotifiedCompletion = true;
+        clearCompletionTimer();
+        const payload = { type: 'playbackComplete', id: currentPlaybackId };
+        if (reason) {
+            payload.reason = reason;
+        }
+        fetch('events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            keepalive: true
+        }).catch(() => {});
     }
 
     function handleMedia(update) {
@@ -487,6 +674,9 @@ audio { display: none; }
         const keepVisible = Boolean(action.loop || persist);
 
         reset();
+        currentPlaybackId = update.id || null;
+        hasNotifiedCompletion = false;
+        keepVisibleCurrent = keepVisible;
         showContainer(action.cssClass || '');
 
         if (action.caption) {
@@ -495,22 +685,46 @@ audio { display: none; }
         }
 
         if (action.mediaType === 'audio') {
+            audio.onended = () => {
+                notifyPlaybackComplete('ended');
+            };
+            audio.onerror = () => {
+                notifyPlaybackComplete('error');
+            };
+            audio.onloadedmetadata = () => {
+                const mediaDuration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration * 1000 : duration;
+                scheduleHide(mediaDuration);
+                scheduleCompletion(mediaDuration);
+            };
             audio.src = action.url;
             if (typeof action.volume === 'number') {
                 audio.volume = action.volume;
             }
             audio.loop = !!action.loop;
             audio.muted = !!action.muted;
-            audio.addEventListener('loadedmetadata', () => {
-                const mediaDuration = audio.duration * 1000;
-                scheduleHide(mediaDuration, keepVisible);
+            scheduleHide(duration);
+            scheduleCompletion(duration);
+            audio.play().catch(() => {
+                notifyPlaybackComplete('playRejected');
+                reset();
             });
-            audio.play().catch(() => {});
         } else if (action.mediaType === 'image') {
             image.src = action.url;
             image.classList.remove('hidden');
-            scheduleHide(duration, keepVisible);
+            scheduleHide(duration);
+            scheduleCompletion(duration);
         } else {
+            video.onended = () => {
+                notifyPlaybackComplete('ended');
+            };
+            video.onerror = () => {
+                notifyPlaybackComplete('error');
+            };
+            video.onloadedmetadata = () => {
+                const mediaDuration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration * 1000 : duration;
+                scheduleHide(mediaDuration);
+                scheduleCompletion(mediaDuration);
+            };
             video.src = action.url;
             video.loop = !!action.loop;
             video.muted = !!action.muted;
@@ -527,14 +741,14 @@ audio { display: none; }
             video.setAttribute('playsinline', '');
             video.setAttribute('autoplay', '');
             video.classList.remove('hidden');
-            video.addEventListener('loadedmetadata', () => {
-                const mediaDuration = video.duration * 1000;
-                scheduleHide(mediaDuration, keepVisible);
-            });
+            scheduleHide(duration);
+            scheduleCompletion(duration);
             const playPromise = video.play();
             if (playPromise && typeof playPromise.catch === 'function') {
                 playPromise.catch((err) => {
                     console.warn('Failed to autoplay reward video:', err);
+                    notifyPlaybackComplete('playRejected');
+                    reset();
                 });
             }
         }
