@@ -3,7 +3,7 @@
 ## Architecture Basics
 - `main.js` is the only executable entry point; it builds a `CONFIG` object, resolves the `resources/` directory, then boots `TwitchChatBot`.
 - Core behaviour lives in `src/twitch/twitchChatBot.js`; this class composes helpers from:
-  - `src/intelligence/` for user memory, recent chat, threaded conversations, and inactivity tracking.
+  - `src/intelligence/` for user memory, persistent user context profiles, recent chat, threaded conversations, and inactivity tracking.
   - `src/games/` for game managers (polls, adventures, trivia, survive).
   - `src/persistence/dataPersistence.js` for JSON saves under `data/`.
   - `src/media/mediaOverlayServer.js` for the SSE overlay.
@@ -26,6 +26,7 @@ All documentation must be maintained in:
 
 ## Static Content & Secrets
 - All editable text/JSON assets (greetings, persona, lore, aliases, reward map) now live in `resources/`. Update `main.js` if you introduce new files so agents use `RESOURCES_DIR`.
+- Enriched per-user context is persisted under `resources/users/<login>/profile.json` (auto-generated). The directory is git-ignored by default; configure location and limits via `CONFIG.intelligence.userContext`.
 - Runtime state is persisted automatically to `data/` (created on demand). Never hardcode defaults into `src/intelligence`—they expect serialised Maps/Sets via the persistence helpers.
 - **Credentials are hardcoded in `main.js`** at the top of the file in `TWITCH_CREDENTIALS` and `GROQ_CREDENTIALS` objects. Before shipping or committing to a public repository:
   - Replace placeholder values (`your_oauth_token_here`, etc.) with actual credentials
@@ -57,7 +58,8 @@ Each interactive game lives in `src/games/` and follows a consistent pattern:
 
 ### Intelligence Enhancements
 - **`inactivityTracker.js`** (v2.0) – Automatically generates AI-powered shame messages for inactive users; tracks per-channel inactivity thresholds and anti-spam delays
-- Integrates into `TwitchChatBot.start()` and `.shutdown()`; updates on every message via `handleMessage()`
+- **`userContextStore.js`** (v3.0) – Persists per-viewer context snapshots (`resources/users/<login>/profile.json`), merges live `UserMemory` data, and feeds richer prompts for the Groq responses. Called on every message and flushed during auto-save/shutdown.
+- Both modules integrate into `TwitchChatBot.start()` and `.shutdown()`; updates occur on every message via `handleMessage()`.
 
 ### General Feature Patterns
 - When adding new bot features, extend `TwitchChatBot` methods and wire additional helpers via its constructor; avoid requiring modules directly from `main.js`.

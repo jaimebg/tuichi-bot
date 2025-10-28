@@ -6,6 +6,7 @@ const { log, isDebugEnabled } = require("../logger");
 const { normalizeWhitespace, clampResponseLength } = require("../utils/text");
 const DataPersistence = require("../persistence/dataPersistence");
 const UserMemory = require("../intelligence/userMemory");
+const UserContextStore = require("../intelligence/userContextStore");
 const RecentChatTracker = require("../intelligence/recentChatTracker");
 const ConversationThreads = require("../intelligence/conversationThreads");
 const MessageLogger = require("../intelligence/messageLogger");
@@ -122,6 +123,7 @@ class TwitchChatBot {
         // Intelligence features
         this.dataPersistence = new DataPersistence(intelligence?.persistence);
         this.userMemory = new UserMemory(intelligence?.userMemoryLimit, intelligence?.engagementTrackingDays);
+        this.userContextStore = new UserContextStore(intelligence?.userContext || {});
         this.recentChat = new RecentChatTracker(intelligence?.recentChatLimit, intelligence?.contextWindowMinutes);
         this.conversationThreads = new ConversationThreads(intelligence?.conversationThreads);
         this.messageLogger = new MessageLogger(intelligence?.messageLogMaxSize ?? 5000, intelligence?.messageLogCleanupMs ?? 60000);
@@ -274,6 +276,7 @@ class TwitchChatBot {
                 this.userMemory.deserialize(userMemoryData);
                 log("info", `Loaded ${this.userMemory.memories.size} user memories`);
             }
+            this.userContextStore.syncFromUserMemory(this.userMemory);
 
             // Load recent chat
             const recentChatData = await this.dataPersistence.loadData('recentChat');
@@ -331,6 +334,8 @@ class TwitchChatBot {
                 lastSaved: now
             };
             await this.dataPersistence.saveData('botState', botState);
+
+            await this.userContextStore.flush();
 
             this.lastDataSave = now;
             log("debug", "Data saved successfully");
@@ -703,7 +708,7 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
 
         // Track all messages for intelligence
         this.recentChat.addMessage(userKey, displayName, trimmedMessage, timestamp);
-        this.userMemory.updateEngagement(userKey, trimmedMessage, timestamp);
+        this.userMemory.updateEngagement(userKey, trimmedMessage, timestamp, { displayName });
         this.messageLogger.logMessage(userKey, displayName);
         this.inactivityTracker.updateActivity(userKey, displayName);
 
@@ -716,6 +721,10 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
 
         // Extract personality traits and themes
         this.extractIntelligence(userKey, trimmedMessage);
+        const detailedContext = this.userMemory.getDetailedContext(userKey);
+        if (detailedContext) {
+            this.userContextStore.updateFromMemory(detailedContext);
+        }
 
         this.handleSingleWordEcho(trimmedMessage, tags);
 
@@ -1043,6 +1052,25 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
         const limitsLine = `Responde en no mas de ${this.aiMaxChars} caracteres.`;
 
         const alias = this.aliases[userKey] || displayName;
+        const formatRelativeTime = (timestamp) => {
+            if (!timestamp) {
+                return null;
+            }
+            const diffMs = Date.now() - timestamp;
+            if (diffMs < 60000) {
+                return "menos de un minuto";
+            }
+            const diffMinutes = Math.floor(diffMs / 60000);
+            if (diffMinutes < 60) {
+                return `${diffMinutes} minutos`;
+            }
+            const diffHours = Math.floor(diffMinutes / 60);
+            if (diffHours < 24) {
+                return `${diffHours} horas`;
+            }
+            const diffDays = Math.floor(diffHours / 24);
+            return `${diffDays} días`;
+        };
 
         // Build comprehensive context
         const contextParts = [];
@@ -1078,8 +1106,65 @@ Haz el mensaje largo y detallado (hasta 200 caracteres), entusiasta, único cada
             if (userSummary.topWords.length > 0) {
                 memoryParts.push(`palabras comunes: ${userSummary.topWords.join(', ')}`);
             }
+            if (userSummary.lastSeen) {
+                const relative = formatRelativeTime(userSummary.lastSeen);
+                if (relative) {
+                    memoryParts.push(`último mensaje hace ${relative}`);
+                }
+            }
             if (memoryParts.length > 0) {
                 contextParts.push(`Sobre ${alias}: ${memoryParts.join('; ')}.`);
+            }
+
+            if (Array.isArray(userSummary.recentMessages) && userSummary.recentMessages.length > 0) {
+                const recentSamples = userSummary.recentMessages
+                    .map((entry) => entry && entry.content)
+                    .filter(Boolean)
+                    .slice(-2);
+                if (recentSamples.length > 0) {
+                    const formattedSamples = recentSamples.map((text) =>
+                        text.length > 80 ? `${text.slice(0, 77)}...` : text
+                    );
+                    contextParts.push(`Últimos mensajes de ${alias}: ${formattedSamples.join(' | ')}`);
+                }
+            }
+
+            if (Array.isArray(userSummary.commands) && userSummary.commands.length > 0) {
+                const frequentCommands = userSummary.commands
+                    .slice(0, 3)
+                    .map(({ command, count }) => `${command} (${count})`);
+                if (frequentCommands.length > 0) {
+                    contextParts.push(`Comandos habituales de ${alias}: ${frequentCommands.join(', ')}.`);
+                }
+            }
+        }
+
+        const userProfile = this.userContextStore.getContextSnapshot(userKey);
+        if (userProfile && userProfile.messageCount > 0) {
+            const profileParts = [];
+            if (userProfile.firstSeen) {
+                const firstSeenDate = new Date(userProfile.firstSeen).toLocaleDateString('es-ES');
+                profileParts.push(`primer mensaje registrado el ${firstSeenDate}`);
+            }
+            if (Array.isArray(userProfile.activeHours) && userProfile.activeHours.length > 0) {
+                const highlights = userProfile.activeHours
+                    .slice(0, 4)
+                    .map((hour) => `${hour}:00h`)
+                    .join(', ');
+                if (highlights) {
+                    profileParts.push(`horario habitual: ${highlights}`);
+                }
+            }
+            if (userProfile.preferences && Object.keys(userProfile.preferences).length > 0) {
+                const preferenceSnippets = Object.entries(userProfile.preferences)
+                    .slice(0, 3)
+                    .map(([key, value]) => `${key}: ${value}`);
+                if (preferenceSnippets.length > 0) {
+                    profileParts.push(`preferencias registradas: ${preferenceSnippets.join(', ')}`);
+                }
+            }
+            if (profileParts.length > 0) {
+                contextParts.push(`Historial de ${alias}: ${profileParts.join('; ')}.`);
             }
         }
 

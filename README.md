@@ -13,7 +13,7 @@ A sophisticated Node.js Twitch chat bot for the `jaimevarecto` channel, featurin
 - **Survive Game** (v2.1): Multi-round battle royale where users write `!survive` each round to survive elimination
 - **Inactivity Mentions**: Automatic AI-generated messages mention inactive users (15+ min silent) with sarcastic/comedic shame
 - **Single Word Echo**: Randomly repeats single-word messages for engagement
-- **User Memory**: Tracks personality traits, conversation themes, and engagement patterns
+- **User Memory & Profiles**: Tracks personality traits, conversation themes, engagement patterns, and persists per-user profiles under `resources/users/` for richer AI context
 - **Threaded Conversations**: Maintains context across multiple exchanges using Twitch replies
 - **User Aliases**: Maps usernames to preferred display names for personalized interactions
 
@@ -52,9 +52,10 @@ A sophisticated Node.js Twitch chat bot for the `jaimevarecto` channel, featurin
 3. **Customize bot behavior**
    - Edit `resources/greetings.txt` – Greeting messages for new viewers
    - Edit `resources/persona.txt` – AI personality and behavior guidelines
-   - Edit `resources/lore.txt` – Story elements for adventures
-   - Edit `resources/aliases.txt` – Username-to-alias mappings
-   - Edit `resources/mediaRewards.json` – Channel point reward mappings
+- Edit `resources/lore.txt` – Story elements for adventures
+- Edit `resources/aliases.txt` – Username-to-alias mappings
+- Edit `resources/mediaRewards.json` – Channel point reward mappings
+- (Optional) Seed per-user context by editing `resources/users/<login>/profile.json`; the bot will merge your notes with live data on the next auto-save.
 
 4. **Run the bot**
    ```bash
@@ -75,6 +76,11 @@ All user-editable text and reward configuration is stored in the `resources/` fo
 - **`resources/lore.txt`** – Story elements and world-building for adventures
 - **`resources/aliases.txt`** – Username-to-alias mappings (format `username:Alias Name`)
 - **`resources/mediaRewards.json`** – Overlay reward mappings for channel redemptions (each reward has an `id` matching the Twitch reward ID, `title`, `cost`, and `action` for media playback; durations are detected automatically for videos and audio).
+- **`resources/users/`** – Auto-generated per-user profiles (`profile.json` per viewer) used to enrich AI responses. The folder ships with a `.gitignore` so live data is not committed.
+
+### User Context Profiles
+
+Every viewer that chats now receives a dedicated folder at `resources/users/<login>/` with a `profile.json` summary (message counts, recent quotes, command usage, active hours, and any manual notes). These files are refreshed on each auto-save and shutdown, and the AI prompt consumes them automatically. You can safely pre-populate or tweak details between streams—just keep values in plain JSON so the bot can merge live updates.
 
 Runtime state (user memories, chat history, etc.) is still stored separately under `data/` when persistence is enabled.
 
