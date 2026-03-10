@@ -1,25 +1,23 @@
 {
   "name": "tuichi-bot",
-  "version": "1.0.0",
-  "description": "Node.js Twitch chat bot that greets viewers joining jaimevarecto when the channel is live.",
-  "main": "main.js",
+  "version": "2.0.0",
+  "type": "module",
+  "engines": { "node": ">=22" },
   "scripts": {
-    "start": "node main.js",
-    "add-rewards": "node addRewards.js"
-  },
-  "keywords": [
-    "twitch",
-    "bot",
-    "chat"
-  ],
-  "author": "",
-  "license": "ISC",
-  "engines": {
-    "node": ">=16"
+    "start": "node --env-file=.env src/index.js",
+    "add-rewards": "node --env-file=.env scripts/addRewards.js",
+    "migrate": "node --env-file=.env scripts/migrateData.js",
+    "test": "node --test test/**/*.test.js",
+    "lint": "eslint src/ scripts/ test/"
   },
   "dependencies": {
-    "node-fetch": "^2.7.0",
-    "tmi.js": "^1.8.5",
+    "@twurple/api": "^7.2.0",
+    "@twurple/auth": "^7.2.0",
+    "@twurple/chat": "^7.2.0",
+    "better-sqlite3": "^11.7.0",
     "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0"
   }
 }
