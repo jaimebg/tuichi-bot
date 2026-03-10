@@ -1,10 +1,11 @@
-const { log } = require("../logger");
+import { log } from '../logger.js';
 
 const MAX_RECENT_MESSAGES = 20;
 const MAX_COMMANDS_TRACKED = 10;
 
-class UserMemory {
-    constructor(limit = 100, engagementTrackingDays = 7) {
+export class UserMemory {
+    constructor(db, limit = 100, engagementTrackingDays = 7) {
+        this.db = db;
         this.memories = new Map();
         this.limit = limit;
         this.engagementTrackingMs = engagementTrackingDays * 24 * 60 * 60 * 1000;
@@ -218,20 +219,45 @@ class UserMemory {
         };
     }
 
-    serialize() {
-        return {
-            memories: this.memories,
-            limit: this.limit,
-            engagementTrackingMs: this.engagementTrackingMs
-        };
+    /** Persist all in-memory data to DB. Called by bot on auto-save/shutdown. */
+    save() {
+        for (const [userKey, userData] of this.memories) {
+            const eng = userData.engagementPattern || {};
+            const commonWords = eng.commonWords instanceof Map
+                ? Object.fromEntries(eng.commonWords) : (eng.commonWords || {});
+            const activeHours = eng.activeHours instanceof Set
+                ? [...eng.activeHours] : (eng.activeHours || []);
+            this.db.users.upsert({
+                userId: userKey,
+                displayName: userData.metadata?.displayName || null,
+                personalityTraits: userData.personality || [],
+                conversationThemes: userData.conversationThemes || [],
+                topWords: commonWords,
+                messageCount: eng.totalMessages || 0,
+                avgMessageLength: eng.averageLength || 0,
+                activeHours
+            });
+        }
     }
 
-    deserialize(data) {
-        if (data && data.memories) {
-            this.memories = data.memories instanceof Map ? data.memories : new Map(Object.entries(data.memories));
-            this.limit = data.limit || this.limit;
-            this.engagementTrackingMs = data.engagementTrackingMs || this.engagementTrackingMs;
+    /** Load from DB into memory cache. Called once at startup. */
+    load() {
+        const rows = this.db.users.getAll();
+        for (const row of rows) {
+            const userData = this.createEmptyUserData();
+            userData.personality = JSON.parse(row.personality_traits || '[]');
+            userData.conversationThemes = JSON.parse(row.conversation_themes || '[]');
+            userData.metadata.displayName = row.display_name;
+            userData.firstSeen = new Date(row.first_seen).getTime();
+            const eng = userData.engagementPattern;
+            eng.totalMessages = row.message_count;
+            eng.averageLength = row.avg_message_length;
+            eng.commonWords = new Map(Object.entries(JSON.parse(row.top_words || '{}')));
+            eng.activeHours = new Set(JSON.parse(row.active_hours || '[]'));
+            eng.lastSeen = new Date(row.last_seen).getTime();
+            this.memories.set(row.user_id, userData);
         }
+        log('info', `Loaded ${this.memories.size} user memories from DB`);
     }
 
     cleanup() {
@@ -271,5 +297,3 @@ class UserMemory {
         }
     }
 }
-
-module.exports = UserMemory;
