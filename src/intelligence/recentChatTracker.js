@@ -1,7 +1,9 @@
-const { normalizeWhitespace } = require("../utils/text");
+import { normalizeWhitespace } from '../utils/text.js';
+import { log } from '../logger.js';
 
-class RecentChatTracker {
-    constructor(limit = 20, contextWindowMinutes = 10) {
+export class RecentChatTracker {
+    constructor(db, limit = 20, contextWindowMinutes = 10) {
+        this.db = db;
         this.messages = [];
         this.limit = limit;
         this.contextWindowMs = contextWindowMinutes * 60 * 1000;
@@ -20,6 +22,9 @@ class RecentChatTracker {
         }
 
         this.cleanOldMessages();
+
+        // Also persist to DB
+        this.db.chat.addMessage(userKey, displayName, normalizeWhitespace(message));
     }
 
     cleanOldMessages() {
@@ -36,23 +41,17 @@ class RecentChatTracker {
             .join("; ");
     }
 
-    serialize() {
+    load() {
+        const rows = this.db.chat.getRecent(this.limit);
+        this.messages = rows.reverse().map(r => ({
+            userKey: r.user_id, displayName: r.display_name,
+            message: r.message, timestamp: new Date(r.timestamp).getTime()
+        }));
         this.cleanOldMessages();
-        return {
-            messages: this.messages,
-            limit: this.limit,
-            contextWindowMs: this.contextWindowMs
-        };
+        log('info', `Loaded ${this.messages.length} recent chat messages from DB`);
     }
 
-    deserialize(data) {
-        if (data) {
-            this.messages = data.messages || [];
-            this.limit = data.limit || this.limit;
-            this.contextWindowMs = data.contextWindowMs || this.contextWindowMs;
-            this.cleanOldMessages();
-        }
+    save() {
+        this.db.chat.pruneOlderThan(this.contextWindowMs / 60000);
     }
 }
-
-module.exports = RecentChatTracker;

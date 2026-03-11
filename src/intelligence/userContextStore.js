@@ -1,71 +1,43 @@
-const fs = require("fs");
-const path = require("path");
-const { log } = require("../logger");
+import { log } from '../logger.js';
 
-class UserContextStore {
-    constructor(options = {}) {
-        this.baseDir = options.baseDir || options.directory || path.join(__dirname, "..", "..", "resources", "users");
-        this.maxRecentMessages = options.maxRecentMessages || 12;
+export class UserContextStore {
+    constructor(db, maxRecentMessages = 12) {
+        this.db = db;
+        this.maxRecentMessages = maxRecentMessages;
         this.contexts = new Map();
         this.dirtyUsers = new Set();
-
-        this.ensureBaseDirectory();
         this.loadExistingContexts();
     }
 
-    ensureBaseDirectory() {
-        try {
-            if (!fs.existsSync(this.baseDir)) {
-                fs.mkdirSync(this.baseDir, { recursive: true });
-                log("info", `Created user context directory at ${this.baseDir}`);
-            }
-        } catch (err) {
-            log("warn", `Unable to ensure user context directory: ${err.message}`);
-        }
-    }
-
     loadExistingContexts() {
-        try {
-            const entries = fs.readdirSync(this.baseDir, { withFileTypes: true });
-            entries.forEach((entry) => {
-                if (!entry.isDirectory()) return;
-                const userKey = entry.name.toLowerCase();
-                const profilePath = path.join(this.baseDir, entry.name, "profile.json");
-                if (fs.existsSync(profilePath)) {
-                    try {
-                        const raw = fs.readFileSync(profilePath, "utf8");
-                        const parsed = JSON.parse(raw);
-                        this.contexts.set(userKey, parsed);
-                    } catch (err) {
-                        log("warn", `Failed to load user profile for ${userKey}: ${err.message}`);
-                    }
-                }
+        const rows = this.db.context.getAll();
+        for (const row of rows) {
+            this.contexts.set(row.user_id, {
+                userKey: row.user_id,
+                displayName: row.display_name,
+                firstSeen: row.first_seen ? new Date(row.first_seen).getTime() : null,
+                lastSeen: row.last_seen ? new Date(row.last_seen).getTime() : null,
+                messageCount: row.message_count,
+                averageLength: row.avg_message_length,
+                activeHours: JSON.parse(row.active_hours || '[]'),
+                personality: JSON.parse(row.personality || '[]'),
+                themes: JSON.parse(row.themes || '[]'),
+                topWords: JSON.parse(row.top_words || '[]'),
+                recentMessages: [],
+                commands: JSON.parse(row.recent_commands || '[]'),
+                preferences: JSON.parse(row.preferences || '{}'),
+                metadata: JSON.parse(row.metadata || '{}')
             });
-            if (this.contexts.size > 0) {
-                log("info", `Loaded ${this.contexts.size} user context profiles.`);
-            }
-        } catch (err) {
-            log("warn", `Unable to scan user context directory: ${err.message}`);
         }
-    }
-
-    sanitizeUserKey(userKey) {
-        return String(userKey || "")
-            .toLowerCase()
-            .replace(/[^a-z0-9_]/gi, "_");
-    }
-
-    getUserDir(userKey) {
-        const safeKey = this.sanitizeUserKey(userKey);
-        return path.join(this.baseDir, safeKey);
+        if (this.contexts.size > 0)
+            log('info', `Loaded ${this.contexts.size} user context profiles from DB`);
     }
 
     getContext(userKey) {
-        const key = this.sanitizeUserKey(userKey);
-        if (!this.contexts.has(key)) {
-            this.contexts.set(key, this.createEmptyContext(key));
+        if (!this.contexts.has(userKey)) {
+            this.contexts.set(userKey, this.createEmptyContext(userKey));
         }
-        return this.contexts.get(key);
+        return this.contexts.get(userKey);
     }
 
     createEmptyContext(userKey) {
@@ -124,7 +96,7 @@ class UserContextStore {
             return;
         }
 
-        const key = this.sanitizeUserKey(detailedContext.userKey);
+        const key = detailedContext.userKey;
         const context = this.getContext(key);
 
         if (detailedContext.displayName) {
@@ -195,42 +167,34 @@ class UserContextStore {
     }
 
     async flush() {
-        if (this.dirtyUsers.size === 0) {
-            return;
-        }
-
-        const tasks = [];
+        if (this.dirtyUsers.size === 0) return;
         for (const userKey of this.dirtyUsers) {
-            const context = this.contexts.get(userKey);
-            if (!context) {
-                continue;
-            }
-            const userDir = this.getUserDir(userKey);
-            const profilePath = path.join(userDir, "profile.json");
-            tasks.push(
-                fs.promises
-                    .mkdir(userDir, { recursive: true })
-                    .then(() =>
-                        fs.promises.writeFile(profilePath, JSON.stringify(context, null, 2), "utf8")
-                    )
-                    .catch((err) => {
-                        log("warn", `Failed to persist profile for ${userKey}: ${err.message}`);
-                    })
-            );
+            const ctx = this.contexts.get(userKey);
+            if (!ctx) continue;
+            this.db.context.upsert({
+                userId: userKey,
+                displayName: ctx.displayName,
+                firstSeen: ctx.firstSeen ? new Date(ctx.firstSeen).toISOString() : null,
+                lastSeen: ctx.lastSeen ? new Date(ctx.lastSeen).toISOString() : null,
+                messageCount: ctx.messageCount,
+                avgMessageLength: ctx.averageLength,
+                activeHours: ctx.activeHours,
+                personality: ctx.personality,
+                themes: ctx.themes,
+                topWords: ctx.topWords,
+                recentCommands: ctx.commands,
+                preferences: ctx.preferences,
+                metadata: ctx.metadata
+            });
         }
-
-        await Promise.all(tasks);
         this.dirtyUsers.clear();
     }
 
     getContextSnapshot(userKey) {
-        const key = this.sanitizeUserKey(userKey);
-        const context = this.contexts.get(key);
+        const context = this.contexts.get(userKey);
         if (!context) {
             return null;
         }
         return JSON.parse(JSON.stringify(context));
     }
 }
-
-module.exports = UserContextStore;

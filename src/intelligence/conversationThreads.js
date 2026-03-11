@@ -1,7 +1,8 @@
-const { log } = require("../logger");
+import { log } from '../logger.js';
 
-class ConversationThreads {
-    constructor(limit = 10) {
+export class ConversationThreads {
+    constructor(db, limit = 10) {
+        this.db = db;
         this.threads = new Map();
         this.userThreads = new Map();
         this.limit = limit;
@@ -52,22 +53,24 @@ class ConversationThreads {
         return limit ? thread.slice(-limit) : thread;
     }
 
-    serialize() {
-        return {
-            threads: this.threads,
-            userThreads: this.userThreads,
-            limit: this.limit,
-            nextThreadId: this.nextThreadId
-        };
+    save() {
+        for (const [userKey, threadId] of this.userThreads) {
+            const messages = this.threads.get(threadId) || [];
+            if (messages.length > 0) {
+                this.db.threads.upsert(userKey, messages);
+            }
+        }
     }
 
-    deserialize(data) {
-        if (data) {
-            this.threads = data.threads instanceof Map ? data.threads : new Map(Object.entries(data.threads || {}));
-            this.userThreads = data.userThreads instanceof Map ? data.userThreads : new Map(Object.entries(data.userThreads || {}));
-            this.limit = data.limit || this.limit;
-            this.nextThreadId = data.nextThreadId || 1;
+    load() {
+        const rows = this.db.threads.getAll();
+        for (const row of rows) {
+            const messages = JSON.parse(row.messages || '[]');
+            const threadId = this.nextThreadId++;
+            this.threads.set(threadId, messages);
+            this.userThreads.set(row.user_id, threadId);
         }
+        log('info', `Loaded ${this.threads.size} conversation threads from DB`);
     }
 
     cleanup(maxAgeMs = 24 * 60 * 60 * 1000) {
@@ -100,5 +103,3 @@ class ConversationThreads {
         }
     }
 }
-
-module.exports = ConversationThreads;
