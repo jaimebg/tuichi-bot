@@ -102,6 +102,10 @@ export function buildConfig(env = process.env) {
     channelPoints: Object.freeze({
       enabled: true, reconnectBaseMs: 5000, maxReconnectMs: 60000, keepaliveGraceMs: 15000
     }),
+    health: Object.freeze({
+      port: Number(env.HEALTH_PORT) || 9090,
+      apiKey: (env.HEALTH_API_KEY || '').trim() || null
+    }),
     singleWordEchoChance: 0.05,
     singleWordEchoDelayMs: 2000,
     logLevel: env.LOG_LEVEL || 'info',
