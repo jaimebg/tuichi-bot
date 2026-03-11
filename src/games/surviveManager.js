@@ -1,6 +1,6 @@
-const { log } = require("../logger");
+import { log } from '../logger.js';
 
-class SurviveManager {
+export class SurviveManager {
     constructor() {
         this.activeSurvive = null;
         this.roundTimer = null;
@@ -275,4 +275,3 @@ class SurviveManager {
     }
 }
 
-module.exports = SurviveManager;

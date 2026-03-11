@@ -1,7 +1,8 @@
-const { log } = require("../logger");
-const { clampResponseLength } = require("../utils/text");
+import { log } from '../logger.js';
+import { clampResponseLength } from '../utils/text.js';
+import { extractJson } from '../utils/json.js';
 
-class TriviaManager {
+export class TriviaManager {
     constructor(groqConfig) {
         this.groqConfig = groqConfig;
         this.activeTrivia = null;
@@ -58,16 +59,12 @@ Responde SOLO con JSON válido, sin explicaciones adicionales.`
 
             let triviaData = null;
             try {
-                let jsonStr = finalMessage.trim();
-                if (!jsonStr.startsWith('{')) {
-                    const start = jsonStr.indexOf('{');
-                    const end = jsonStr.lastIndexOf('}');
-                    if (start !== -1 && end !== -1 && end > start) {
-                        jsonStr = jsonStr.substring(start, end + 1);
-                    }
-                }
-                triviaData = JSON.parse(jsonStr);
+                triviaData = extractJson(finalMessage);
             } catch (e) {
+                log("warn", "Failed to parse trivia JSON");
+                return null;
+            }
+            if (!triviaData) {
                 log("warn", "Failed to parse trivia JSON");
                 return null;
             }
@@ -234,4 +231,3 @@ Responde SOLO con JSON válido, sin explicaciones adicionales.`
     }
 }
 
-module.exports = TriviaManager;

@@ -1,6 +1,6 @@
-const { log } = require("../logger");
+import { log } from '../logger.js';
 
-class PollManager {
+export class PollManager {
     constructor() {
         this.activePoll = null;
         this.pollTimer = null;
@@ -189,4 +189,3 @@ class PollManager {
     }
 }
 
-module.exports = PollManager;

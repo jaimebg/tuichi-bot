@@ -1,7 +1,8 @@
-const { log } = require("../logger");
-const { clampResponseLength } = require("../utils/text");
+import { log } from '../logger.js';
+import { clampResponseLength } from '../utils/text.js';
+import { extractJson } from '../utils/json.js';
 
-class AdventureManager {
+export class AdventureManager {
     constructor(groqConfig, lore = '') {
         this.groqConfig = groqConfig;
         this.lore = lore;
@@ -48,22 +49,18 @@ ${this.lore}`
 
             let story = '';
             let options = [];
+            let data = null;
             try {
-                let jsonStr = finalMessage.trim();
-                if (!jsonStr.startsWith('{')) {
-                    const start = jsonStr.indexOf('{');
-                    const end = jsonStr.lastIndexOf('}');
-                    if (start !== -1 && end !== -1 && end > start) {
-                        jsonStr = jsonStr.substring(start, end + 1);
-                    }
-                }
-                const data = JSON.parse(jsonStr);
-                story = data.story || '';
-                options = Array.isArray(data.options) ? data.options.filter(o => o && o.trim()) : [];
+                data = extractJson(finalMessage);
             } catch (e) {
-                log("warn", "Failed to parse adventure JSON, using fallback");
+                // fallback
+            }
+            if (!data) {
                 story = finalMessage.substring(0, 250);
                 options = ["Avanzar", "Investigar", "Huir"];
+            } else {
+                story = data.story || '';
+                options = Array.isArray(data.options) ? data.options.filter(o => o && o.trim()) : [];
             }
 
             if (!story || options.length < 2) {
@@ -203,21 +200,18 @@ ${this.lore}`
 
             let newStory = '';
             let newOptions = [];
+            let data = null;
             try {
-                let jsonStr = finalMessage.trim();
-                if (!jsonStr.startsWith('{')) {
-                    const start = jsonStr.indexOf('{');
-                    const end = jsonStr.lastIndexOf('}');
-                    if (start !== -1 && end !== -1 && end > start) {
-                        jsonStr = jsonStr.substring(start, end + 1);
-                    }
-                }
-                const data = JSON.parse(jsonStr);
-                newStory = data.story || '';
-                newOptions = Array.isArray(data.options) ? data.options.filter(o => o && o.trim()) : [];
+                data = extractJson(finalMessage);
             } catch (e) {
+                // fallback
+            }
+            if (!data) {
                 newStory = finalMessage;
                 newOptions = ["Continuar", "Retroceder", "Escapar"];
+            } else {
+                newStory = data.story || '';
+                newOptions = Array.isArray(data.options) ? data.options.filter(o => o && o.trim()) : [];
             }
 
             if (!newStory || newOptions.length < 2) {
@@ -287,19 +281,14 @@ ${this.lore}`
             const finalMessage = clampResponseLength(aiReply, 500);
 
             let ending = finalMessage;
+            let data = null;
             try {
-                let jsonStr = finalMessage.trim();
-                if (!jsonStr.startsWith('{')) {
-                    const start = jsonStr.indexOf('{');
-                    const end = jsonStr.lastIndexOf('}');
-                    if (start !== -1 && end !== -1 && end > start) {
-                        jsonStr = jsonStr.substring(start, end + 1);
-                    }
-                }
-                const data = JSON.parse(jsonStr);
-                ending = data.ending || finalMessage;
+                data = extractJson(finalMessage);
             } catch (e) {
-                // Use finalMessage as-is
+                // fallback
+            }
+            if (data) {
+                ending = data.ending || finalMessage;
             }
 
             const result = {
@@ -358,4 +347,3 @@ ${this.lore}`
     }
 }
 
-module.exports = AdventureManager;
