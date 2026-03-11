@@ -2,6 +2,9 @@ const LOG_PRIORITIES = { debug: 0, info: 1, warn: 2, error: 3 };
 
 let currentLevel = 'info';
 let currentPriority = LOG_PRIORITIES[currentLevel];
+let errorObserver = null;
+
+export function setErrorObserver(fn) { errorObserver = typeof fn === 'function' ? fn : null; }
 
 export function setLogLevel(level) {
   if (!level) {
@@ -18,6 +21,9 @@ export function log(level, ...args) {
   if (priority === undefined || priority < currentPriority) return;
   const method = level === 'error' ? 'error' : level === 'warn' ? 'warn' : level === 'debug' ? 'debug' : 'log';
   console[method](`[${level.toUpperCase()}]`, ...args);
+  if (level === 'error' && errorObserver) {
+    try { errorObserver(args.join(' ')); } catch (_) {}
+  }
 }
 
 export function getLogLevel() { return currentLevel; }
