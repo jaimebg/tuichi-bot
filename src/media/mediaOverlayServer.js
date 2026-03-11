@@ -1,8 +1,12 @@
-const fs = require("fs");
-const path = require("path");
-const http = require("http");
-const crypto = require("crypto");
-const { log } = require("../logger");
+import fs from 'node:fs';
+import path from 'node:path';
+import http from 'node:http';
+import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { log } from '../logger.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const OVERLAY_DIR = path.join(__dirname, 'overlay');
 
 class MediaOverlayServer {
     constructor(config = {}) {
@@ -209,12 +213,21 @@ class MediaOverlayServer {
     handleRequest(req, res) {
         const url = new URL(req.url, `http://${req.headers.host || `${this.host}:${this.port}`}`);
         if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/overlay")) {
-            res.writeHead(200, {
-                "Content-Type": "text/html",
-                "Cache-Control": "no-cache",
-                "Access-Control-Allow-Origin": "*"
-            });
-            res.end(this.buildOverlayHtml());
+            const html = fs.readFileSync(path.join(OVERLAY_DIR, 'index.html'), 'utf8');
+            res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' });
+            res.end(html);
+            return;
+        }
+        if (req.method === "GET" && url.pathname === "/overlay.css") {
+            const css = fs.readFileSync(path.join(OVERLAY_DIR, 'overlay.css'), 'utf8');
+            res.writeHead(200, { 'Content-Type': 'text/css', 'Access-Control-Allow-Origin': '*' });
+            res.end(css);
+            return;
+        }
+        if (req.method === "GET" && url.pathname === "/overlay.js") {
+            const js = fs.readFileSync(path.join(OVERLAY_DIR, 'overlay.js'), 'utf8');
+            res.writeHead(200, { 'Content-Type': 'application/javascript', 'Access-Control-Allow-Origin': '*' });
+            res.end(js);
             return;
         }
         if (req.method === "POST" && url.pathname === "/events") {
@@ -560,324 +573,6 @@ class MediaOverlayServer {
         return true;
     }
 
-    buildOverlayHtml() {
-        return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Media Overlay</title>
-<style>
-body { margin: 0; background: transparent; overflow: hidden; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; }
-.media-container { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
-.media-container.hidden { display: none !important; }
-.media-container.visible { display: flex; }
-.media-element { max-width: 100%; max-height: 100%; object-fit: contain; }
-#media-video { background: transparent; }
-#media-image { background: transparent; }
-#caption { position: absolute; bottom: 4vh; width: 100%; text-align: center; color: #fff; font-size: 2.2vw; text-shadow: 0 0 12px rgba(0,0,0,0.85); padding: 0 2vw; box-sizing: border-box; }
-.hidden { display: none !important; }
-audio { display: none; }
-</style>
-</head>
-<body>
-<div id="media-container" class="media-container hidden">
-    <video id="media-video" class="media-element hidden" playsinline></video>
-    <img id="media-image" class="media-element hidden" alt="">
-    <audio id="media-audio"></audio>
-    <div id="caption" class="hidden"></div>
-</div>
-<script>
-(function() {
-    const DEFAULT_MEDIA_TIMEOUT_MS = 10 * 60 * 1000;
-    const container = document.getElementById('media-container');
-    const video = document.getElementById('media-video');
-    const image = document.getElementById('media-image');
-    const audio = document.getElementById('media-audio');
-    const caption = document.getElementById('caption');
-    let hideTimer = null;
-    let completionTimer = null;
-    let currentPlaybackId = null;
-    let hasNotifiedCompletion = false;
-    let keepVisibleCurrent = false;
-    let metadataFallbackTimer = null;
-    let activeMediaType = null;
-
-    function clearHideTimer() {
-        if (hideTimer) {
-            clearTimeout(hideTimer);
-            hideTimer = null;
-        }
-    }
-
-    function clearCompletionTimer() {
-        if (completionTimer) {
-            clearTimeout(completionTimer);
-            completionTimer = null;
-        }
-    }
-
-    function clearMetadataFallback() {
-        if (metadataFallbackTimer) {
-            clearTimeout(metadataFallbackTimer);
-            metadataFallbackTimer = null;
-        }
-    }
-
-    function reset() {
-        clearHideTimer();
-        clearCompletionTimer();
-        clearMetadataFallback();
-        video.pause();
-        video.removeAttribute('src');
-        video.load();
-        video.loop = false;
-        video.muted = false;
-        video.volume = 1;
-        video.classList.add('hidden');
-        video.onended = null;
-        video.onloadedmetadata = null;
-        video.onerror = null;
-        audio.pause();
-        audio.removeAttribute('src');
-        audio.load();
-        audio.loop = false;
-        audio.muted = false;
-        audio.volume = 1;
-        audio.onended = null;
-        audio.onloadedmetadata = null;
-        audio.onerror = null;
-        image.src = '';
-        image.classList.add('hidden');
-        caption.textContent = '';
-        caption.classList.add('hidden');
-        container.className = 'media-container hidden';
-        currentPlaybackId = null;
-        hasNotifiedCompletion = false;
-        keepVisibleCurrent = false;
-        activeMediaType = null;
-    }
-
-    function applyCaptionTemplate(text, context) {
-        return text
-            .replace('{user}', context.userDisplayName || '')
-            .replace('{reward}', context.rewardTitle || '')
-            .replace('{input}', context.userInput || '');
-    }
-
-    function showContainer(cssClass) {
-        container.className = 'media-container visible';
-        if (cssClass) {
-            cssClass.split(/\\s+/).forEach(cls => {
-                if (cls) {
-                    container.classList.add(cls);
-                }
-            });
-        }
-    }
-
-    function scheduleHide(durationMs) {
-        clearHideTimer();
-        if (keepVisibleCurrent) {
-            return;
-        }
-        const timeout = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 5000;
-        hideTimer = setTimeout(() => {
-            if (!hasNotifiedCompletion) {
-                notifyPlaybackComplete('timeout');
-            }
-            reset();
-        }, timeout);
-    }
-
-    function scheduleCompletion(durationMs) {
-        if (!currentPlaybackId) {
-            return;
-        }
-        clearCompletionTimer();
-        const timeout = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 5000;
-        completionTimer = setTimeout(() => {
-            notifyPlaybackComplete('timeout');
-        }, timeout + 250);
-    }
-
-    function scheduleMetadataFallback(fallbackDurationMs) {
-        clearMetadataFallback();
-        if (!Number.isFinite(fallbackDurationMs) || fallbackDurationMs <= 0) {
-            return;
-        }
-        metadataFallbackTimer = setTimeout(() => {
-            metadataFallbackTimer = null;
-            if (!hasNotifiedCompletion) {
-                notifyPlaybackInfo(fallbackDurationMs);
-                scheduleCompletion(fallbackDurationMs);
-            }
-        }, 1500);
-    }
-
-    function postOverlayEvent(payload) {
-        if (!payload || typeof payload !== 'object') {
-            return;
-        }
-        fetch('events', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-            keepalive: true
-        }).catch(() => {});
-    }
-
-    function notifyPlaybackComplete(reason) {
-        if (!currentPlaybackId || hasNotifiedCompletion) {
-            return;
-        }
-        hasNotifiedCompletion = true;
-        clearCompletionTimer();
-        clearMetadataFallback();
-        const payload = { type: 'playbackComplete', id: currentPlaybackId };
-        if (reason) {
-            payload.reason = reason;
-        }
-        postOverlayEvent(payload);
-    }
-
-    function notifyPlaybackInfo(durationMs) {
-        if (!currentPlaybackId) {
-            return;
-        }
-        if (!Number.isFinite(durationMs) || durationMs <= 0) {
-            return;
-        }
-        postOverlayEvent({
-            type: 'playbackInfo',
-            id: currentPlaybackId,
-            durationMs: durationMs,
-            bufferMs: 750
-        });
-    }
-
-    function handleMedia(update) {
-        const action = update.action || {};
-        const context = update.context || {};
-        const configuredDuration = Number(action.durationMs);
-        const duration = Number.isFinite(configuredDuration) && configuredDuration > 0 ? configuredDuration : null;
-        const persist = Boolean(action.persist || update.keepVisible);
-        const keepVisible = Boolean(action.loop || persist);
-
-        reset();
-        currentPlaybackId = update.id || null;
-        hasNotifiedCompletion = false;
-        activeMediaType = action.mediaType || null;
-        const isTimedMedia = activeMediaType === 'audio' || activeMediaType === 'video';
-        keepVisibleCurrent = keepVisible || isTimedMedia;
-        showContainer(action.cssClass || '');
-
-        if (action.caption) {
-            caption.textContent = applyCaptionTemplate(action.caption, context);
-            caption.classList.remove('hidden');
-        }
-
-        if (action.mediaType === 'audio') {
-            scheduleMetadataFallback(DEFAULT_MEDIA_TIMEOUT_MS);
-            audio.onended = () => {
-                notifyPlaybackComplete('ended');
-            };
-            audio.onerror = () => {
-                notifyPlaybackComplete('error');
-                reset();
-            };
-            audio.onloadedmetadata = () => {
-                clearMetadataFallback();
-                const mediaDuration = Number.isFinite(audio.duration) && audio.duration > 0
-                    ? audio.duration * 1000
-                    : DEFAULT_MEDIA_TIMEOUT_MS;
-                scheduleCompletion(mediaDuration);
-                notifyPlaybackInfo(mediaDuration);
-            };
-            audio.src = action.url;
-            if (typeof action.volume === 'number') {
-                audio.volume = action.volume;
-            }
-            audio.loop = !!action.loop;
-            audio.muted = !!action.muted;
-            audio.play().catch(() => {
-                notifyPlaybackComplete('playRejected');
-                reset();
-            });
-        } else if (action.mediaType === 'image') {
-            image.src = action.url;
-            image.classList.remove('hidden');
-            const imageDuration = Number.isFinite(duration) && duration > 0 ? duration : 5000;
-            scheduleHide(imageDuration);
-            scheduleCompletion(imageDuration);
-            notifyPlaybackInfo(imageDuration);
-        } else {
-            scheduleMetadataFallback(DEFAULT_MEDIA_TIMEOUT_MS);
-            video.onended = () => {
-                notifyPlaybackComplete('ended');
-            };
-            video.onerror = () => {
-                notifyPlaybackComplete('error');
-                reset();
-            };
-            video.onloadedmetadata = () => {
-                clearMetadataFallback();
-                const mediaDuration = Number.isFinite(video.duration) && video.duration > 0
-                    ? video.duration * 1000
-                    : DEFAULT_MEDIA_TIMEOUT_MS;
-                scheduleCompletion(mediaDuration);
-                notifyPlaybackInfo(mediaDuration);
-            };
-            video.src = action.url;
-            video.loop = !!action.loop;
-            video.muted = !!action.muted;
-            if (typeof action.volume === 'number') {
-                video.volume = action.volume;
-            }
-            video.autoplay = true;
-            video.preload = 'auto';
-            if (action.muted) {
-                video.setAttribute('muted', '');
-            } else {
-                video.removeAttribute('muted');
-            }
-            video.setAttribute('playsinline', '');
-            video.setAttribute('autoplay', '');
-            video.classList.remove('hidden');
-            const playPromise = video.play();
-            if (playPromise && typeof playPromise.catch === 'function') {
-                playPromise.catch((err) => {
-                    console.warn('Failed to autoplay reward video:', err);
-                    notifyPlaybackComplete('playRejected');
-                    reset();
-                });
-            }
-        }
-    }
-
-    const source = new EventSource('events');
-
-    source.onmessage = (event) => {
-        if (!event.data) {
-            return;
-        }
-        try {
-            const payload = JSON.parse(event.data);
-            if (payload.type === 'media') {
-                handleMedia(payload);
-            } else if (payload.type === 'clear') {
-                reset();
-            }
-        } catch (_) {
-            // ignore
-        }
-    };
-
-    source.addEventListener('keepalive', () => {});
-})();
-</script>
-</body>
-</html>`;
-    }
 }
 
-module.exports = MediaOverlayServer;
+export { MediaOverlayServer };
