@@ -24,8 +24,11 @@ A Node.js Twitch chat bot for the `jaimevarecto` channel, featuring AI-powered i
 - Rate limiting and cooldowns
 - Configurable logging levels
 - Media overlay server (SSE) for channel point rewards
-- EventSub WebSocket for channel point redemptions
-- 34 automated tests via Node.js built-in test runner
+- EventSub WebSocket for channel point redemptions and stream events
+- Circuit breaker on Groq API with exponential backoff
+- Health check server with metrics and REST API
+- systemd integration with watchdog and memory limits
+- Automated tests via Node.js built-in test runner
 
 ## Getting Started
 
@@ -60,6 +63,8 @@ GROQ_API_KEY=your_groq_api_key
 LOG_LEVEL=info
 MEDIA_OVERLAY_ENABLED=true
 MEDIA_OVERLAY_PORT=8910
+HEALTH_PORT=9090
+HEALTH_API_KEY=your-secret-api-key
 ```
 
 ### Obtaining Credentials
@@ -131,7 +136,7 @@ src/
     aiController.js         AI response generation via Groq
     chatHandler.js          @twurple/chat wrapper with EventEmitter
     gameController.js       Routes game commands, emits chat messages
-    streamMonitor.js        Polls Twitch API for stream status changes
+    streamMonitor.js        Stream status via EventSub + adaptive polling
   games/
     pollManager.js          Multiple-choice polls
     triviaManager.js        AI-generated trivia
@@ -147,11 +152,16 @@ src/
   media/
     mediaOverlayServer.js   SSE server for browser overlay
     overlay/                Static HTML/CSS/JS for OBS browser source
+  bot/
+    scheduler.js            Centralized periodic task runner
+    metricsCollector.js     In-memory counters and error ring buffer
+    healthServer.js         HTTP health/metrics/REST API server
+    watchdog.js             systemd sd_notify integration
   persistence/
     database.js             SQLite (better-sqlite3) with 8-table schema
   twitch/
     twitchApi.js            Shared auth + API layer (@twurple/auth + @twurple/api)
-    channelPointsWatcher.js EventSub WebSocket for channel point redemptions
+    eventSubClient.js       EventSub WebSocket (channel points + stream events)
     constants.js            Ignored users list
   utils/
     text.js                 Whitespace normalization, response clamping
@@ -159,10 +169,57 @@ src/
 scripts/
   addRewards.js             Sync channel point rewards to Twitch
   migrateData.js            One-time JSON-to-SQLite migration
+  deploy.sh                 Push-to-VPS deploy with health verification
+  backup-db.sh              Crontab fallback for daily SQLite backup
+  setup-vps.sh              One-time VPS provisioning
 test/                       Automated tests (node:test)
 resources/                  Static config files (greetings, persona, lore, aliases, rewards)
 data/                       SQLite database (created on first run)
 ```
+
+## VPS Deployment (Oracle Cloud Free Tier)
+
+### Quick Setup
+
+```bash
+# On the VPS
+./scripts/setup-vps.sh
+# Edit .env with your credentials
+sudo systemctl start tuichi-bot
+```
+
+### systemd Management
+
+```bash
+sudo systemctl start tuichi-bot    # Start
+sudo systemctl stop tuichi-bot     # Stop
+sudo systemctl restart tuichi-bot  # Restart
+sudo systemctl status tuichi-bot   # Status
+journalctl -u tuichi-bot -f        # Live logs
+```
+
+### Health Check
+
+```bash
+curl http://localhost:9090/health              # Public health status
+curl -H "Authorization: Bearer <KEY>" \
+     http://localhost:9090/metrics              # Full metrics (requires HEALTH_API_KEY)
+curl http://localhost:9090/api/status           # Stream status summary
+```
+
+### Deploy Updates
+
+```bash
+VPS_HOST=tuichi-vps ./scripts/deploy.sh
+```
+
+Runs tests locally, pulls on VPS, restarts service, and verifies health.
+
+### Backups
+
+SQLite database is backed up automatically:
+- **In-app**: Daily backup to `data/backups/` with 7-day retention
+- **Cron fallback**: `scripts/backup-db.sh` (installed by setup-vps.sh at 04:00 daily)
 
 ## Troubleshooting
 
@@ -171,6 +228,8 @@ data/                       SQLite database (created on first run)
 - **Overlay not showing** -- Open `http://localhost:8910/overlay` in OBS/browser source. Verify rewards are mapped in `resources/mediaRewards.json`.
 - **Token refresh errors** -- Verify `TWITCH_REFRESH_TOKEN`, `TWITCH_CLIENT_ID`, and `TWITCH_CLIENT_SECRET` are correct.
 - **EventSub 429 errors** -- Rate limiting from rapid reconnections. The bot backs off automatically; wait and it will reconnect.
+- **Circuit breaker open** -- Groq API had 3+ consecutive failures. The bot auto-recovers after 1-5 min cooldown. Check `/metrics` for details.
+- **Health check returns 503** -- Chat connection or database is unhealthy. Check `journalctl -u tuichi-bot` for details.
 
 ## Requirements
 

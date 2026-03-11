@@ -29,7 +29,11 @@ Bot
 │   └── SurviveManager
 ├── StreamMonitor (EventEmitter: live, offline, categoryChange)
 ├── MediaOverlayServer (SSE + static file serving)
-└── ChannelPointsWatcher (EventSub WebSocket)
+├── EventSubClient (EventSub WebSocket: channel points + stream events)
+├── Scheduler (centralized periodic task runner)
+├── MetricsCollector (in-memory counters + error ring buffer)
+├── HealthServer (HTTP health/metrics/REST API on port 9090)
+└── Watchdog (systemd sd_notify via execFile)
 ```
 
 ### Persistence
@@ -44,6 +48,16 @@ Bot
 - All credentials come from environment variables loaded via `node --env-file=.env`.
 - Required vars: `TWITCH_USERNAME`, `TWITCH_CHANNEL`, `TWITCH_OAUTH_TOKEN`, `TWITCH_API_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `GROQ_API_KEY`.
 - Never hardcode credentials. Never commit `.env`.
+- Optional vars: `HEALTH_PORT` (default 9090), `HEALTH_API_KEY` (API key for protected endpoints).
+
+### Production (VPS)
+
+- systemd service: `tuichi-bot.service` -- auto-restart, watchdog, memory limits (768M).
+- Health server on port 9090: `/health`, `/metrics`, `/api/status`, `/api/users`, `/api/say`.
+- Circuit breaker on Groq API: 3 failures -> OPEN (1-5 min backoff) -> HALF_OPEN -> CLOSED.
+- Scheduled tasks via `Scheduler` module (replaces manual setInterval).
+- Daily SQLite backup to `data/backups/` (7-day retention).
+- Deploy: `scripts/deploy.sh` (test -> git pull -> restart -> health check).
 
 ## Conventions
 
