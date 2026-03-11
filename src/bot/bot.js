@@ -528,7 +528,7 @@ export class Bot {
     if (ge !== null) this.greetingsEnabled = ge === 'true';
     const gu = this.db.state.get('greetedUsers');
     if (gu) {
-      try { this.greetedUsers = new Map(Object.entries(JSON.parse(gu))); } catch (_) {}
+      try { this.greetedUsers = new Map(Object.entries(JSON.parse(gu))); } catch { /* ignore corrupt data */ }
     }
   }
   _getTopUsersMessage(limit) {

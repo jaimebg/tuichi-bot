@@ -24,7 +24,7 @@ describe('AiController circuit breaker', () => {
 
   it('opens after 3 consecutive failures', async () => {
     for (let i = 0; i < 3; i++) {
-      try { await ai.fetchGroqResponse([{ role: 'user', content: 'hi' }]); } catch (_) {}
+      try { await ai.fetchGroqResponse([{ role: 'user', content: 'hi' }]); } catch { /* expected */ }
     }
     assert.equal(ai._circuit.state, 'OPEN');
   });
@@ -39,7 +39,7 @@ describe('AiController circuit breaker', () => {
   it('transitions to HALF_OPEN after cooldown', async () => {
     ai._circuit.state = 'OPEN';
     ai._circuit.openUntil = Date.now() - 1;
-    try { await ai.fetchGroqResponse([{ role: 'user', content: 'hi' }]); } catch (_) {}
+    try { await ai.fetchGroqResponse([{ role: 'user', content: 'hi' }]); } catch { /* expected */ }
     assert.equal(ai._circuit.state, 'OPEN');
   });
 

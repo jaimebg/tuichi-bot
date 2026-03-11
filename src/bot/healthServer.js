@@ -76,7 +76,7 @@ export class HealthServer {
   _handleHealth(res) {
     const chatOk = this.bot.chat.isHealthy(this.bot.streamMonitor?.isOnline ?? false);
     let dbOk = false;
-    try { dbOk = !!this.bot.db.raw.prepare('SELECT 1 as v').get(); } catch {}
+    try { dbOk = !!this.bot.db.raw.prepare('SELECT 1 as v').get(); } catch { /* db unavailable */ }
     const healthy = chatOk && dbOk;
     const status = healthy ? 200 : 503;
     this._json(res, status, {

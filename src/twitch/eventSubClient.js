@@ -54,7 +54,7 @@ export class EventSubClient {
     this.currentReconnectDelay = this.reconnectBaseMs;
     this._clearKeepaliveTimer();
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
-    if (this.ws) { try { this.ws.terminate(); } catch (_) {} this.ws = null; }
+    if (this.ws) { try { this.ws.terminate(); } catch { /* ignore */ } this.ws = null; }
   }
 
   async _ensureBroadcasterId() {
@@ -66,7 +66,7 @@ export class EventSubClient {
 
   _connect(url = null) {
     if (!this.started || !this.broadcasterId) return;
-    if (this.ws) { try { this.ws.terminate(); } catch (_) {} this.ws = null; }
+    if (this.ws) { try { this.ws.terminate(); } catch { /* ignore */ } this.ws = null; }
     const targetUrl = url || this.socketUrl;
     log('info', `Connecting to Twitch EventSub at ${targetUrl}`);
     const ws = new WebSocket(targetUrl);
@@ -192,7 +192,7 @@ export class EventSubClient {
 
   _reconnect(immediate = false) {
     this._clearKeepaliveTimer();
-    if (this.ws) { try { this.ws.terminate(); } catch (_) {} this.ws = null; }
+    if (this.ws) { try { this.ws.terminate(); } catch { /* ignore */ } this.ws = null; }
     if (!this.started) return;
     this._subscriptionsCreated = false;
     this._pendingSubscriptions = false;
