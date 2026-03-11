@@ -14,6 +14,15 @@ export class AiController {
     this.pendingRequests = new Set();
     this.userLastResponseAt = new Map();
     this.lastGlobalResponseAt = 0;
+    this._circuit = {
+      state: 'CLOSED',
+      failures: 0,
+      failureThreshold: 3,
+      cooldownMs: 60_000,
+      maxCooldownMs: 300_000,
+      backoffMultiplier: 2,
+      openUntil: 0
+    };
   }
 
   canSendAIResponse(userKey) {
@@ -32,6 +41,23 @@ export class AiController {
 
   _getAlias(userKey, displayName) {
     return this.aliases[userKey] || displayName;
+  }
+
+  getCircuitState() { return this._circuit.state; }
+
+  _circuitSuccess() {
+    this._circuit.state = 'CLOSED';
+    this._circuit.failures = 0;
+    this._circuit.cooldownMs = 60_000;
+  }
+
+  _circuitFailure() {
+    this._circuit.failures++;
+    if (this._circuit.state === 'HALF_OPEN' || this._circuit.failures >= this._circuit.failureThreshold) {
+      this._circuit.state = 'OPEN';
+      this._circuit.openUntil = Date.now() + this._circuit.cooldownMs;
+      log('warn', `Circuit breaker OPEN — Groq unavailable. Retry in ${this._circuit.cooldownMs / 1000}s`);
+    }
   }
 
   /**
@@ -112,6 +138,14 @@ export class AiController {
   /** Call Groq API with model fallback. */
   async fetchGroqResponse(messages) {
     if (!this.groqConfig) return '';
+
+    // Circuit breaker check
+    if (this._circuit.state === 'OPEN') {
+      if (Date.now() < this._circuit.openUntil) return null;
+      this._circuit.state = 'HALF_OPEN';
+      log('info', 'Circuit breaker HALF_OPEN — testing Groq');
+    }
+
     const { baseUrl, apiKey, models, temperature, timeoutMs, maxTokens } = this.groqConfig;
     const modelList = Array.isArray(models) && models.length ? models : ['llama-3.3-70b-versatile'];
     const errors = [];
@@ -138,11 +172,20 @@ export class AiController {
         const text = normalizeWhitespace(payload?.choices?.[0]?.message?.content || '');
         if (!text) throw new Error('Groq returned empty response');
         if (model !== modelList[0]) log('info', `Fallback model ${model} succeeded.`);
+        this._circuitSuccess();
         return text;
       } catch (err) {
         errors.push({ model, err });
         log('warn', `Groq model ${model} failed: ${err.message}`);
       }
+    }
+    this._circuitFailure();
+    if (this._circuit.state === 'OPEN') {
+      this._circuit.cooldownMs = Math.min(
+        this._circuit.cooldownMs * this._circuit.backoffMultiplier,
+        this._circuit.maxCooldownMs
+      );
+      return null;
     }
     throw new Error(`All Groq models failed: ${errors.map(e => `${e.model}: ${e.err.message}`).join('; ')}`);
   }
