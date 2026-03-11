@@ -9,15 +9,12 @@ Wants=network-online.target
 [Service]
 Type=notify
 NotifyAccess=all
-User=opc
-WorkingDirectory=/home/opc/tuichi-bot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/tuichi-bot
 ExecStart=/usr/bin/node --env-file=.env src/index.js
 Restart=always
 RestartSec=5
 WatchdogSec=120
-NoNewPrivileges=true
-ProtectSystem=strict
-ReadWritePaths=/home/opc/tuichi-bot/data
 MemoryMax=768M
 CPUQuota=80%
 StandardOutput=journal
