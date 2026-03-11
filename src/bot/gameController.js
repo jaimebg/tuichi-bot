@@ -70,24 +70,25 @@ export class GameController extends EventEmitter {
   _sendLong(text) { this.emit('sendLong', text); }
 
   _handlePoll(userKey, displayName, message) {
-    const args = message.split(/\s+/).slice(1);
-    if (args.length === 0) {
-      this._send('¡Encuestas! Uso: !poll "<pregunta>" | "opción 1" "opción 2" ["opción 3"] [tiempo_segundos]');
+    const body = message.slice(message.indexOf(' ') + 1).trim();
+    if (!body || message.toLowerCase() === '!poll') {
+      this._send('¡Encuestas! Uso: !poll pregunta | opción 1 | opción 2 [| tiempo_segundos]');
       return;
     }
-    const match = message.match(/"([^"]*)"/g);
-    if (!match || match.length < 3) {
-      this._send('❌ Formato inválido. Usa: !poll "<pregunta>" "opción1" "opción2" ... [tiempo_en_segundos]');
+    const segments = body.split('|').map(s => s.trim()).filter(s => s);
+    if (segments.length < 3) {
+      this._send('❌ Formato inválido. Usa: !poll pregunta | opción1 | opción2 [| tiempo_en_segundos]');
       return;
     }
-    const question = match[0].slice(1, -1);
-    const options = match.slice(1).map(m => m.slice(1, -1));
-    if (options.length < 2) { this._send('❌ Necesitas al menos 2 opciones.'); return; }
+    const question = segments[0];
+    let options = segments.slice(1);
     let durationMs = 60000;
-    const lastArg = args[args.length - 1];
-    if (!lastArg.includes('"') && !isNaN(parseInt(lastArg))) {
-      durationMs = Math.min(300000, Math.max(10000, parseInt(lastArg) * 1000));
+    const lastSegment = options[options.length - 1];
+    if (/^\d+$/.test(lastSegment)) {
+      durationMs = Math.min(300000, Math.max(10000, parseInt(lastSegment) * 1000));
+      options = options.slice(0, -1);
     }
+    if (options.length < 2) { this._send('❌ Necesitas al menos 2 opciones.'); return; }
     const started = this.pollManager.startPoll(question, options, durationMs);
     if (!started) { this._send('❌ Ya hay una encuesta activa o parámetros inválidos.'); return; }
     this.metrics?.increment('gamesPlayed');
