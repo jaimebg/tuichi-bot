@@ -54,6 +54,13 @@ export class TwitchApi {
     return tokenInfo?.accessToken ?? null;
   }
 
+  /** Get the broadcaster access token (for channel points, subscriptions). */
+  async getBroadcasterAccessToken() {
+    if (!this._broadcasterId) return null;
+    const tokenInfo = await this.authProvider.getAccessTokenForUser(this._broadcasterId);
+    return tokenInfo?.accessToken ?? null;
+  }
+
   /** Get user by login name. Returns { id, displayName } or null. */
   async getUserByName(login) {
     const user = await this.api.users.getUserByName(login);
