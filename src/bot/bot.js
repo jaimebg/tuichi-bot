@@ -32,7 +32,9 @@ export class Bot {
       clientId: config.twitch.clientId,
       clientSecret: config.twitch.clientSecret,
       accessToken: config.twitch.apiToken,
-      refreshToken: config.twitch.refreshToken
+      refreshToken: config.twitch.refreshToken,
+      broadcasterToken: config.twitch.broadcasterToken,
+      broadcasterRefreshToken: config.twitch.broadcasterRefreshToken
     });
 
     // Chat

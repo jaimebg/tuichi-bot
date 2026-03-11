@@ -13,6 +13,7 @@ const REQUIRED_ENV = [
   'TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET', 'GROQ_API_KEY'
 ];
 
+
 /** Validate required keys exist and are non-empty. */
 export function validateEnv(env, keys) {
   const result = {};
@@ -72,7 +73,9 @@ export function buildConfig(env = process.env) {
       username: vars.TWITCH_USERNAME, channel: vars.TWITCH_CHANNEL,
       apiToken: vars.TWITCH_API_TOKEN,
       refreshToken: vars.TWITCH_REFRESH_TOKEN,
-      clientId: vars.TWITCH_CLIENT_ID, clientSecret: vars.TWITCH_CLIENT_SECRET
+      clientId: vars.TWITCH_CLIENT_ID, clientSecret: vars.TWITCH_CLIENT_SECRET,
+      broadcasterToken: (env.TWITCH_BROADCASTER_TOKEN || '').trim() || null,
+      broadcasterRefreshToken: (env.TWITCH_BROADCASTER_REFRESH_TOKEN || '').trim() || null
     }),
     groq: Object.freeze({
       apiKey: vars.GROQ_API_KEY,

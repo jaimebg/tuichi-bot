@@ -7,9 +7,9 @@ import { log } from '../logger.js';
  */
 export class TwitchApi {
   /**
-   * @param {{ clientId, clientSecret, accessToken, refreshToken }} config
+   * @param {{ clientId, clientSecret, accessToken, refreshToken, broadcasterToken?, broadcasterRefreshToken? }} config
    */
-  constructor({ clientId, clientSecret, accessToken, refreshToken }) {
+  constructor({ clientId, clientSecret, accessToken, refreshToken, broadcasterToken, broadcasterRefreshToken }) {
     this.authProvider = new RefreshingAuthProvider({ clientId, clientSecret });
     // addUserForToken may return a string or Promise<string> depending on
     // @twurple version. Wrap in Promise.resolve to handle both cases.
@@ -19,6 +19,17 @@ export class TwitchApi {
         ['chat']
       )
     ).then(userId => { this._userId = userId; });
+    // Register broadcaster token for EventSub subscriptions (channel points, stream events)
+    if (broadcasterToken && broadcasterRefreshToken) {
+      this._ready = this._ready.then(() =>
+        Promise.resolve(
+          this.authProvider.addUserForToken(
+            { accessToken: broadcasterToken, refreshToken: broadcasterRefreshToken, expiresIn: 0, obtainmentTimestamp: 0 },
+            ['channel:read:redemptions', 'channel:read:subscriptions']
+          )
+        ).then(broadcasterId => { this._broadcasterId = broadcasterId; })
+      );
+    }
     this.authProvider.onRefresh((_userId, newTokenData) => {
       log('info', 'Twitch token refreshed automatically');
       this._latestTokenData = newTokenData;
@@ -26,6 +37,7 @@ export class TwitchApi {
     this.api = new ApiClient({ authProvider: this.authProvider });
     this._latestTokenData = null;
     this._userId = null;
+    this._broadcasterId = null;
   }
 
   /** Wait for token registration to complete. Call once at startup. */
