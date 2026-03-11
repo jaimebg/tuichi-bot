@@ -8,7 +8,7 @@ const ROOT = path.resolve(__dirname, '..');
 const RESOURCES_DIR = path.join(ROOT, 'resources');
 
 const REQUIRED_ENV = [
-  'TWITCH_USERNAME', 'TWITCH_CHANNEL', 'TWITCH_OAUTH_TOKEN',
+  'TWITCH_USERNAME', 'TWITCH_CHANNEL',
   'TWITCH_API_TOKEN', 'TWITCH_REFRESH_TOKEN',
   'TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET', 'GROQ_API_KEY'
 ];
@@ -67,13 +67,10 @@ export function buildConfig(env = process.env) {
   const persona = loadPersona(path.join(RESOURCES_DIR, 'persona.txt'));
   const lore = loadLore(path.join(RESOURCES_DIR, 'lore.txt'));
   const aliases = loadAliases(path.join(RESOURCES_DIR, 'aliases.txt'));
-  const oauthToken = vars.TWITCH_OAUTH_TOKEN.startsWith('oauth:')
-    ? vars.TWITCH_OAUTH_TOKEN.slice(6) : vars.TWITCH_OAUTH_TOKEN;
-
   return Object.freeze({
     twitch: Object.freeze({
       username: vars.TWITCH_USERNAME, channel: vars.TWITCH_CHANNEL,
-      oauthToken, apiToken: vars.TWITCH_API_TOKEN,
+      apiToken: vars.TWITCH_API_TOKEN,
       refreshToken: vars.TWITCH_REFRESH_TOKEN,
       clientId: vars.TWITCH_CLIENT_ID, clientSecret: vars.TWITCH_CLIENT_SECRET
     }),

@@ -46,7 +46,7 @@ Bot
 ### Credentials
 
 - All credentials come from environment variables loaded via `node --env-file=.env`.
-- Required vars: `TWITCH_USERNAME`, `TWITCH_CHANNEL`, `TWITCH_OAUTH_TOKEN`, `TWITCH_API_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `GROQ_API_KEY`.
+- Required vars: `TWITCH_USERNAME`, `TWITCH_CHANNEL`, `TWITCH_API_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `GROQ_API_KEY`.
 - Never hardcode credentials. Never commit `.env`.
 - Optional vars: `HEALTH_PORT` (default 9090), `HEALTH_API_KEY` (API key for protected endpoints).
 

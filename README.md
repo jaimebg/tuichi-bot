@@ -52,7 +52,6 @@ Create a `.env` file in the project root with the following variables:
 ```env
 TWITCH_USERNAME=your_bot_username
 TWITCH_CHANNEL=channel_to_join
-TWITCH_OAUTH_TOKEN=oauth:your_oauth_token
 TWITCH_API_TOKEN=your_api_access_token
 TWITCH_REFRESH_TOKEN=your_refresh_token
 TWITCH_CLIENT_ID=your_client_id
@@ -69,13 +68,11 @@ HEALTH_API_KEY=your-secret-api-key
 
 ### Obtaining Credentials
 
-**Twitch Chat OAuth Token** (`TWITCH_OAUTH_TOKEN`)
-- Generate via https://twitchapps.com/tmi/ while logged in as your bot account
-
 **Twitch API Credentials** (`TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_API_TOKEN`, `TWITCH_REFRESH_TOKEN`)
-- Create an application at https://dev.twitch.tv/console/apps
-- Use the OAuth Authorization Code flow to obtain access and refresh tokens
-- Required scopes: `channel:read:redemptions` (for EventSub channel points)
+1. Create an application at https://dev.twitch.tv/console/apps (redirect URL: `http://localhost:3000`)
+2. Use the OAuth Authorization Code flow to obtain access and refresh tokens
+3. Required scopes: `chat:read chat:edit channel:read:redemptions channel:read:subscriptions moderator:read:chatters`
+4. The bot auto-refreshes the access token using the refresh token
 
 **Groq API Key** (`GROQ_API_KEY`)
 - Create a key from the Groq console: https://console.groq.com/keys
