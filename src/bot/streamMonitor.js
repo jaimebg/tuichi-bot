@@ -2,24 +2,29 @@ import { EventEmitter } from 'node:events';
 import { log } from '../logger.js';
 
 /**
- * Polls stream status. Emits: 'live', 'offline', 'categoryChange'.
+ * Monitors stream status. Emits: 'live', 'offline', 'categoryChange'.
+ *
+ * Primary: EventSub notifications via handleLive()/handleOffline().
+ * Fallback: Polling for category changes (every 5min) or full status (every 60s if EventSub is down).
  */
 export class StreamMonitor extends EventEmitter {
-  constructor({ twitchApi, channel, intervalMs = 60000 }) {
+  constructor({ twitchApi, channel, pollIntervalMs = 300000, fallbackIntervalMs = 60000 }) {
     super();
     this.twitchApi = twitchApi;
     this.channel = channel;
-    this.intervalMs = intervalMs;
+    this.pollIntervalMs = pollIntervalMs;          // 5 min (category change only)
+    this.fallbackIntervalMs = fallbackIntervalMs;   // 60s (full check, no EventSub)
     this.isOnline = false;
     this.currentGame = null;
     this.currentTitle = null;
     this.streamStartTime = null;
     this._timer = null;
+    this._eventSubConnected = false;
   }
 
   start() {
     if (this._timer) return;
-    this._timer = setInterval(() => this.check(), this.intervalMs);
+    this._schedulePolling();
     log('info', 'Started stream monitoring');
     this.check(); // initial check
   }
@@ -27,6 +32,43 @@ export class StreamMonitor extends EventEmitter {
   stop() {
     if (this._timer) { clearInterval(this._timer); this._timer = null; }
     log('info', 'Stopped stream monitoring');
+  }
+
+  /** Called by EventSubClient when stream.online fires */
+  handleLive(event) {
+    if (this.isOnline) return; // already known
+    this.isOnline = true;
+    this.streamStartTime = event.started_at ? new Date(event.started_at).getTime() : Date.now();
+    log('info', 'Stream went live (via EventSub)');
+    // Fetch full info for title/game since EventSub stream.online doesn't include them
+    this.check();
+  }
+
+  /** Called by EventSubClient when stream.offline fires */
+  handleOffline() {
+    if (!this.isOnline) return; // already known
+    this.isOnline = false;
+    this.currentGame = null;
+    this.currentTitle = null;
+    this.streamStartTime = null;
+    log('info', 'Stream went offline (via EventSub)');
+    this.emit('offline');
+  }
+
+  setEventSubConnected(connected) {
+    if (this._eventSubConnected === connected) return;
+    this._eventSubConnected = connected;
+    log('info', `StreamMonitor: EventSub ${connected ? 'connected' : 'disconnected'}, adjusting poll interval`);
+    // Reschedule polling with appropriate interval
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._schedulePolling();
+    }
+  }
+
+  _schedulePolling() {
+    const interval = this._eventSubConnected ? this.pollIntervalMs : this.fallbackIntervalMs;
+    this._timer = setInterval(() => this.check(), interval);
   }
 
   async check() {
