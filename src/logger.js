@@ -22,7 +22,7 @@ export function log(level, ...args) {
   const method = level === 'error' ? 'error' : level === 'warn' ? 'warn' : level === 'debug' ? 'debug' : 'log';
   console[method](`[${level.toUpperCase()}]`, ...args);
   if (level === 'error' && errorObserver) {
-    try { errorObserver(args.join(' ')); } catch (_) {}
+    try { errorObserver(args.join(' ')); } catch { /* ignore observer errors */ }
   }
 }
 

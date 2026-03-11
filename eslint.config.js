@@ -15,12 +15,25 @@ export default [
         clearInterval: 'readonly',
         URL: 'readonly',
         URLSearchParams: 'readonly',
-        fetch: 'readonly'
+        fetch: 'readonly',
+        AbortController: 'readonly'
       }
     },
     rules: {
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       'no-console': 'off'
+    }
+  },
+  {
+    files: ['src/media/overlay/**/*.js'],
+    languageOptions: {
+      globals: {
+        document: 'readonly',
+        window: 'readonly',
+        EventSource: 'readonly',
+        Audio: 'readonly',
+        Image: 'readonly'
+      }
     }
   },
   { ignores: ['node_modules/', 'data/'] }

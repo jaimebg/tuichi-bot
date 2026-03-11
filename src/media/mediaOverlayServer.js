@@ -157,8 +157,7 @@ class MediaOverlayServer {
             volume,
             cssClass: typeof action.cssClass === "string" ? action.cssClass : "",
             caption: typeof action.caption === "string" ? action.caption : "",
-            persist: !!(action.keepVisible || action.persist),
-            durationMs
+            persist: !!(action.keepVisible || action.persist)
         };
     }
 
