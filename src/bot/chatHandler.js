@@ -19,12 +19,14 @@ export class ChatHandler extends EventEmitter {
       channels: [this.channel]
     });
     this._registerHandlers();
+    this._lastActivityAt = Date.now();
   }
 
   _registerHandlers() {
     this.client.onConnect(() => {
       log('info', `Connected to Twitch chat #${this.channel}`);
       this.emit('connected');
+      this._lastActivityAt = Date.now();
     });
 
     this.client.onDisconnect((_manually, reason) => {
@@ -43,6 +45,7 @@ export class ChatHandler extends EventEmitter {
 
     this.client.onMessage((channel, user, text, msg) => {
       if (user.toLowerCase() === this.botUsername) return;
+      this._lastActivityAt = Date.now();
       const trimmed = normalizeWhitespace(text);
       if (!trimmed) return;
       this.emit('message', {
@@ -102,5 +105,10 @@ export class ChatHandler extends EventEmitter {
 
   async disconnect() {
     this.client.quit();
+  }
+
+  isHealthy(streamIsOnline = false) {
+    const threshold = streamIsOnline ? 10 * 60 * 1000 : 60 * 60 * 1000;
+    return (Date.now() - this._lastActivityAt) < threshold;
   }
 }
