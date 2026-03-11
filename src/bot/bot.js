@@ -66,6 +66,7 @@ export class Bot {
     this.conversationThreads = new ConversationThreads(this.db, config.intelligence.conversationThreadLimit);
     this.messageLogger = new MessageLogger();
     this.inactivityTracker = new InactivityTracker(15, 90000, IGNORED_USERS);
+    this.lastSpontaneousReplyAt = 0;
 
     // Games (AI callback injected, not imported)
     this.gameController = new GameController({
@@ -261,6 +262,9 @@ export class Bot {
     // Mention/reply handling -> AI response
     this._handleMention({ userKey, displayName, message, tags, msg, timestamp });
 
+    // Spontaneous reply to random messages
+    this._handleSpontaneousReply({ userKey, displayName, message, msg });
+
     // Auto-trigger media based on message content
     this._handleAutoTriggerMedia(message, displayName);
   }
@@ -280,6 +284,57 @@ export class Bot {
     );
     if (delay > 0) setTimeout(send, delay);
     else send();
+  }
+
+  // --- Spontaneous reply to random chat messages ---
+  async _handleSpontaneousReply({ userKey, displayName, message, msg }) {
+    if (!this.ai.groqConfig) return;
+    if (this.config.spontaneousReplyChance <= 0) return;
+    const firstChar = message.charAt(0);
+    if (firstChar === '!' || firstChar === '@') return;
+    const mentionToken = `@${this.config.twitch.username}`;
+    if (message.toLowerCase().includes(mentionToken)) return;
+    const now = Date.now();
+    if (now - this.lastSpontaneousReplyAt < this.config.spontaneousReplyCooldownMs) return;
+    if (Math.random() >= this.config.spontaneousReplyChance) return;
+    if (this.ai.pendingRequests.has(`spontaneous:${userKey}`)) return;
+
+    this.ai.pendingRequests.add(`spontaneous:${userKey}`);
+    try {
+      const alias = this.ai._getAlias(userKey, displayName);
+      const recentChat = this.recentChat.getRecentContext(userKey);
+      const userSummary = this.userMemory.getUserSummary(userKey);
+
+      let streamContext = '';
+      if (this.streamMonitor.currentGame) streamContext = `Categoría actual: ${this.streamMonitor.currentGame}.`;
+
+      const contextParts = [];
+      if (streamContext) contextParts.push(streamContext);
+      if (recentChat) contextParts.push(`Chat reciente: ${recentChat}`);
+      if (userSummary?.personality?.length) contextParts.push(`Personalidad de ${alias}: ${userSummary.personality.join(', ')}`);
+      if (userSummary?.themes?.length) contextParts.push(`Temas de interés de ${alias}: ${userSummary.themes.join(', ')}`);
+
+      const contextText = contextParts.length ? `\nContexto: ${contextParts.join(' ')}` : '';
+
+      const msgs = [
+        { role: 'system', content: `${this.config.resources.persona}\n\nEstás en el chat del canal jaimevarecto. A veces te metes en la conversación de forma espontánea, con humor y naturalidad, como si fueras un espectador más. No menciones que eres un bot ni que estás respondiendo aleatoriamente. Sé breve y natural.${contextText}\nResponde en no mas de ${this.ai.maxChars} caracteres.` },
+        { role: 'user', content: `${alias} acaba de decir en el chat: "${message}"\n\nResponde de forma natural y relevante a lo que dijo, como si fueras parte de la conversación.` }
+      ];
+
+      const reply = await this.ai.fetchGroqResponse(msgs);
+      if (reply === null) return;
+      const finalMessage = clampResponseLength(reply, this.ai.maxChars);
+      if (!finalMessage?.trim()) return;
+
+      await this.chat.sendMessage(finalMessage, msg);
+      this.lastSpontaneousReplyAt = Date.now();
+      this.ai._recordResponse(userKey);
+      log('debug', `Spontaneous reply to ${displayName}: ${finalMessage.slice(0, 50)}...`);
+    } catch (err) {
+      log('warn', `Failed spontaneous reply to ${displayName}: ${err.message}`);
+    } finally {
+      this.ai.pendingRequests.delete(`spontaneous:${userKey}`);
+    }
   }
 
   // --- Auto-trigger media ---

@@ -108,6 +108,8 @@ export function buildConfig(env = process.env) {
     }),
     singleWordEchoChance: 0.05,
     singleWordEchoDelayMs: 2000,
+    spontaneousReplyChance: 0.05,
+    spontaneousReplyCooldownMs: 5 * 60 * 1000,
     logLevel: env.LOG_LEVEL || 'info',
     resources: Object.freeze({ greetings, persona, lore, aliases }),
     paths: Object.freeze({
