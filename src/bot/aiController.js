@@ -14,6 +14,7 @@ export class AiController {
     this.pendingRequests = new Set();
     this.userLastResponseAt = new Map();
     this.lastGlobalResponseAt = 0;
+    this.metrics = null;
     this._circuit = {
       state: 'CLOSED',
       failures: 0,
@@ -24,6 +25,8 @@ export class AiController {
       openUntil: 0
     };
   }
+
+  setMetrics(metrics) { this.metrics = metrics; }
 
   canSendAIResponse(userKey) {
     const now = Date.now();
@@ -56,6 +59,7 @@ export class AiController {
     if (this._circuit.state === 'HALF_OPEN' || this._circuit.failures >= this._circuit.failureThreshold) {
       this._circuit.state = 'OPEN';
       this._circuit.openUntil = Date.now() + this._circuit.cooldownMs;
+      this.metrics?.increment('circuitOpens');
       log('warn', `Circuit breaker OPEN — Groq unavailable. Retry in ${this._circuit.cooldownMs / 1000}s`);
     }
   }
@@ -146,6 +150,8 @@ export class AiController {
       log('info', 'Circuit breaker HALF_OPEN — testing Groq');
     }
 
+    this.metrics?.increment('aiRequests');
+    const startTime = Date.now();
     const { baseUrl, apiKey, models, temperature, timeoutMs, maxTokens } = this.groqConfig;
     const modelList = Array.isArray(models) && models.length ? models : ['llama-3.3-70b-versatile'];
     const errors = [];
@@ -171,11 +177,16 @@ export class AiController {
         const payload = await response.json();
         const text = normalizeWhitespace(payload?.choices?.[0]?.message?.content || '');
         if (!text) throw new Error('Groq returned empty response');
-        if (model !== modelList[0]) log('info', `Fallback model ${model} succeeded.`);
+        if (model !== modelList[0]) {
+          log('info', `Fallback model ${model} succeeded.`);
+          this.metrics?.increment('modelFallbacks');
+        }
+        this.metrics?.recordAiLatency(Date.now() - startTime);
         this._circuitSuccess();
         return text;
       } catch (err) {
         errors.push({ model, err });
+        this.metrics?.increment('aiErrors');
         log('warn', `Groq model ${model} failed: ${err.message}`);
       }
     }

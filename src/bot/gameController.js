@@ -13,12 +13,15 @@ export class GameController extends EventEmitter {
   constructor({ generateGameContent, groqConfig, lore, adventureConfig }) {
     super();
     this.generateGameContent = generateGameContent;
+    this.metrics = null;
     this.pollManager = new PollManager();
     this.triviaManager = new TriviaManager(groqConfig);
     this.adventureManager = new AdventureManager(groqConfig, lore);
     this.surviveManager = new SurviveManager();
     this.adventureConfig = adventureConfig || {};
   }
+
+  setMetrics(metrics) { this.metrics = metrics; }
 
   /** Returns true if message was handled as a game command. */
   handleCommand(userKey, displayName, message, presentUsers) {
@@ -87,6 +90,7 @@ export class GameController extends EventEmitter {
     }
     const started = this.pollManager.startPoll(question, options, durationMs);
     if (!started) { this._send('❌ Ya hay una encuesta activa o parámetros inválidos.'); return; }
+    this.metrics?.increment('gamesPlayed');
     const optionsList = options.map((opt, idx) => `${idx + 1}) ${opt}`).join(' | ');
     this._send(`📊 ENCUESTA: ${question}`);
     this._send(optionsList);
@@ -109,6 +113,7 @@ export class GameController extends EventEmitter {
     if (this.triviaManager.isActive()) { this._send('❌ Ya hay una trivia activa. ¡Responde con !a, !b, !c o !d!'); return; }
     const result = await this.triviaManager.startTrivia('general', 30000, this.generateGameContent);
     if (!result) { this._send('❌ No pude generar la pregunta. Intenta más tarde.'); return; }
+    this.metrics?.increment('gamesPlayed');
     this._send(`🧠 TRIVIA: ${result.question}`);
     this._send(`a) ${result.options.a} | b) ${result.options.b} | c) ${result.options.c} | d) ${result.options.d}`);
     this._send(`⏰ Responde con !a, !b, !c o !d en ${result.durationSeconds} segundos!`);
@@ -136,6 +141,7 @@ export class GameController extends EventEmitter {
     }
     const startedData = this.surviveManager.startSurvive(presentUsers, 30000);
     if (!startedData) { this._send('❌ Necesitas al menos 2 personas conectadas para jugar.'); return; }
+    this.metrics?.increment('gamesPlayed');
     this._send('🎮 ¡SURVIVE - Battle Royale de Chat!');
     this._send(startedData.message);
     this._send(`Jugadores iniciales: ${startedData.count}`);
@@ -178,6 +184,7 @@ export class GameController extends EventEmitter {
     if (this.adventureManager.isActive()) { this._send('❌ Ya hay una aventura en curso. ¡Votad con !1, !2, etc!'); return; }
     const result = await this.adventureManager.startAdventure(theme, this.generateGameContent);
     if (!result) { this._send('❌ No pude iniciar la aventura. Intenta más tarde.'); return; }
+    this.metrics?.increment('gamesPlayed');
     this._send(`⚔️ AVENTURA: ${result.story}`);
     for (let i = 0; i < result.options.length; i++) this._send(`${i + 1}) ${result.options[i]}`);
     this._send(`¡Votad con !${Array.from({ length: result.options.length }, (_, i) => i + 1).join(' o !')} en 60 segundos!`);

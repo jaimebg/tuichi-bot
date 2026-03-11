@@ -1,4 +1,4 @@
-import { log } from '../logger.js';
+import { log, setErrorObserver } from '../logger.js';
 import { Database } from '../persistence/database.js';
 import { TwitchApi } from '../twitch/twitchApi.js';
 import { ChatHandler } from './chatHandler.js';
@@ -12,9 +12,15 @@ import { ConversationThreads } from '../intelligence/conversationThreads.js';
 import { MessageLogger } from '../intelligence/messageLogger.js';
 import { InactivityTracker } from '../intelligence/inactivityTracker.js';
 import { MediaOverlayServer } from '../media/mediaOverlayServer.js';
-import { ChannelPointsWatcher } from '../twitch/channelPointsWatcher.js';
+import { EventSubClient } from '../twitch/eventSubClient.js';
+import { Scheduler } from './scheduler.js';
+import { MetricsCollector } from './metricsCollector.js';
+import { HealthServer } from './healthServer.js';
+import { Watchdog } from './watchdog.js';
 import { IGNORED_USERS } from '../twitch/constants.js';
 import { normalizeWhitespace, clampResponseLength } from '../utils/text.js';
+import fs from 'node:fs';
+import path from 'node:path';
 
 export class Bot {
   constructor(config) {
@@ -35,6 +41,14 @@ export class Bot {
       channel: config.twitch.channel,
       botUsername: config.twitch.username
     });
+
+    // Wrap sendMessage to count metrics
+    const originalSend = this.chat.sendMessage.bind(this.chat);
+    this.chat.sendMessage = async (...args) => {
+      const result = await originalSend(...args);
+      this.metrics.increment('messagesSent');
+      return result;
+    };
 
     // AI
     this.ai = new AiController({
@@ -66,13 +80,33 @@ export class Bot {
     // Media Overlay
     this.mediaOverlay = config.media.enabled ? new MediaOverlayServer(config.media) : null;
 
-    // Channel Points
-    this.channelPointsWatcher = config.channelPoints.enabled ? new ChannelPointsWatcher({
+    // EventSub (shared WebSocket for channel points + stream events)
+    this.eventSubClient = config.channelPoints.enabled ? new EventSubClient({
       twitchApi: this.twitchApi, channelLogin: config.twitch.channel,
       reconnectBaseMs: config.channelPoints.reconnectBaseMs,
       maxReconnectMs: config.channelPoints.maxReconnectMs,
       keepaliveGraceMs: config.channelPoints.keepaliveGraceMs
-    }, (redemption) => this._handleRedemption(redemption)) : null;
+    }) : null;
+
+    if (this.eventSubClient) {
+      // Channel points redemption
+      this.eventSubClient.registerSubscription(
+        'channel.channel_points_custom_reward_redemption.add', '1',
+        { broadcaster_user_id: '' }, // auto-filled by EventSubClient
+        (event) => this._handleRedemptionEvent(event)
+      );
+      // Stream online/offline
+      this.eventSubClient.registerSubscription(
+        'stream.online', '1',
+        { broadcaster_user_id: '' },
+        (event) => this.streamMonitor.handleLive(event)
+      );
+      this.eventSubClient.registerSubscription(
+        'stream.offline', '1',
+        { broadcaster_user_id: '' },
+        () => this.streamMonitor.handleOffline()
+      );
+    }
 
     // Session state
     this.presentUsers = new Set();
@@ -83,8 +117,17 @@ export class Bot {
     this.greetingsEnabled = true;
     this.startupIgnoreUntil = 0;
     this.initialNamesHandled = false;
-    this._autoSaveTimer = null;
-    this._inactivityTimer = null;
+
+    // Production modules
+    this.metrics = new MetricsCollector();
+    this.scheduler = new Scheduler();
+    this.watchdog = new Watchdog();
+    this.healthServer = new HealthServer({
+      port: config.health.port,
+      apiKey: config.health.apiKey,
+      bot: this,
+      metrics: this.metrics
+    });
 
     this._wireEvents();
   }
@@ -133,26 +176,49 @@ export class Bot {
     this.conversationThreads.load();
     this._loadBotState();
 
+    // Wire error observer for metrics
+    setErrorObserver((msg) => this.metrics.recordError(msg));
+
+    // Wire metrics into modules
+    this.ai.setMetrics(this.metrics);
+    this.gameController.setMetrics(this.metrics);
+
     // Connect chat
     await this.chat.connect();
     log('info', `Joined channel #${this.config.twitch.channel}`);
 
     // Start sub-systems
     if (this.mediaOverlay) await this.mediaOverlay.start();
-    if (this.channelPointsWatcher) await this.channelPointsWatcher.start();
+    if (this.eventSubClient) await this.eventSubClient.start();
     this.streamMonitor.start();
-    this._startAutoSave();
-    this._startInactivityTracking();
+    await this.healthServer.start();
+
+    // Register scheduled tasks
+    this.scheduler.register('auto-save', () => this._saveAll(), 5 * 60_000);
+    this.scheduler.register('inactivity-check', () => this._checkInactivity(), 120_000);
+    this.scheduler.register('watchdog-notify', () => {
+      if (this.healthServer.isSystemHealthy()) this.watchdog.notifyWatchdog();
+    }, 30_000);
+    this.scheduler.register('chat-health-check', () => {
+      if (!this.chat.isHealthy(this.streamMonitor.isOnline)) {
+        log('warn', 'Chat connection appears unhealthy (zombie detected)');
+      }
+    }, 60_000);
+    this.scheduler.register('memory-check', () => this._checkMemory(), 5 * 60_000);
+    this.scheduler.register('db-backup', () => this._backupDb(), 86400_000);
+
+    // Notify systemd we're ready
+    await this.watchdog.notifyReady();
   }
 
   async shutdown() {
-    this._stopAutoSave();
-    this._stopInactivityTracking();
+    this.scheduler.stopAll();
     await this._saveAll();
     this.gameController.cancelAll();
     this.streamMonitor.stop();
-    if (this.channelPointsWatcher) await this.channelPointsWatcher.stop();
+    if (this.eventSubClient) await this.eventSubClient.stop();
     if (this.mediaOverlay) await this.mediaOverlay.stop();
+    await this.healthServer.stop();
     await this.chat.disconnect();
     this.db.close();
     log('info', 'Bot shutdown complete');
@@ -169,6 +235,7 @@ export class Bot {
     this.recentChat.addMessage(userKey, displayName, message, timestamp);
     this.userMemory.updateEngagement(userKey, message, timestamp, { displayName });
     this.messageLogger.logMessage(userKey, displayName);
+    this.metrics.increment('messagesReceived');
     this.inactivityTracker.updateActivity(userKey, displayName);
 
     // Greetings toggle (owner only)
@@ -349,6 +416,11 @@ export class Bot {
       });
 
       let aiReply = await this.ai.fetchGroqResponse(chatMessages);
+      if (aiReply === null) {
+        // Circuit breaker open
+        await this.chat.sendMessage('Estoy teniendo problemas para pensar, dame un momento', msg);
+        return;
+      }
       let finalMessage = clampResponseLength(aiReply, this.ai.maxChars);
       if (!finalMessage || !finalMessage.trim()) {
         finalMessage = 'lo siento, tuve un problema para procesar tu pregunta';
@@ -368,6 +440,23 @@ export class Bot {
   }
 
   // --- Channel point redemptions ---
+  _handleRedemptionEvent(event) {
+    // Normalize EventSub event to the format _handleRedemption expects
+    const normalized = {
+      id: event.id,
+      reward: event.reward || {},
+      user: {
+        display_name: event.user_name || event.user_login || '',
+        login: event.user_login || '',
+        id: event.user_id || ''
+      },
+      user_input: event.user_input || '',
+      redeemed_at: event.redeemed_at,
+      status: event.status
+    };
+    this._handleRedemption(normalized);
+  }
+
   _handleRedemption(redemption) {
     if (!redemption) return;
     const userDisplay = redemption.user?.display_name || redemption.user?.login || 'unknown';
@@ -423,12 +512,6 @@ export class Bot {
   }
 
   // --- Persistence & lifecycle helpers ---
-  _startAutoSave() {
-    this._autoSaveTimer = setInterval(() => this._saveAll(), 5 * 60 * 1000);
-  }
-  _stopAutoSave() {
-    if (this._autoSaveTimer) { clearInterval(this._autoSaveTimer); this._autoSaveTimer = null; }
-  }
   async _saveAll() {
     this.userMemory.cleanup();
     this.conversationThreads.cleanup();
@@ -453,16 +536,41 @@ export class Bot {
     if (!top.length) return null;
     return `Top ${top.length} ridículas más activas hoy: ${top.map(u => `@${u.displayName} (${u.messageCount} mensajes)`).join(', ')}`;
   }
-  _startInactivityTracking() {
-    this._inactivityTimer = setInterval(async () => {
-      const candidate = this.inactivityTracker.getShameCandidate();
-      if (candidate && this.ai.groqConfig) {
-        await this._sendShameMessage(candidate);
-      }
-    }, 120000);
+  async _checkInactivity() {
+    const candidate = this.inactivityTracker.getShameCandidate();
+    if (candidate && this.ai.groqConfig) {
+      await this._sendShameMessage(candidate);
+    }
   }
-  _stopInactivityTracking() {
-    if (this._inactivityTimer) { clearInterval(this._inactivityTimer); this._inactivityTimer = null; }
+
+  _checkMemory() {
+    const mem = process.memoryUsage();
+    const heapMB = Math.round(mem.heapUsed / 1024 / 1024);
+    if (heapMB > 600) {
+      log('error', `Heap usage critical: ${heapMB}MB — initiating graceful restart`);
+      this._saveAll().then(() => process.exit(1));
+    } else if (heapMB > 400) {
+      log('warn', `Heap usage high: ${heapMB}MB`);
+    }
+  }
+
+  async _backupDb() {
+    try {
+      const backupDir = path.join(this.config.paths.data, 'backups');
+      fs.mkdirSync(backupDir, { recursive: true });
+      const dest = path.join(backupDir, `tuichi-${new Date().toISOString().slice(0, 10)}.db`);
+      await this.db.raw.backup(dest);
+      // Prune backups older than 7 days
+      const cutoff = Date.now() - 7 * 86400_000;
+      for (const file of fs.readdirSync(backupDir)) {
+        const filePath = path.join(backupDir, file);
+        const stat = fs.statSync(filePath);
+        if (stat.mtimeMs < cutoff) fs.unlinkSync(filePath);
+      }
+      log('info', `Database backed up to ${dest}`);
+    } catch (err) {
+      log('error', `Database backup failed: ${err.message}`);
+    }
   }
 
   // --- Inactivity shame message ---
