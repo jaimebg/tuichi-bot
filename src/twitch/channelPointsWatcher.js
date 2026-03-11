@@ -1,17 +1,13 @@
-const fetch = require("node-fetch");
-const WebSocket = require("ws");
-const { log } = require("../logger");
+import WebSocket from 'ws';
+import { log } from '../logger.js';
 
 class ChannelPointsWatcher {
-    constructor(config = {}, onRedeem) {
-        this.clientId = config.clientId;
-        this.accessToken = config.accessToken;
-        this.accessTokenProvider = typeof config.getAccessToken === "function" ? config.getAccessToken : null;
-        this.accessTokenRefresher = typeof config.refreshAccessToken === "function" ? config.refreshAccessToken : null;
-        this.channelLogin = config.channelLogin;
-        this.reconnectBaseMs = Number.isFinite(config.reconnectBaseMs) ? Number(config.reconnectBaseMs) : 5000;
-        this.maxReconnectMs = Number.isFinite(config.maxReconnectMs) ? Number(config.maxReconnectMs) : 60000;
-        this.keepaliveGraceMs = Number.isFinite(config.keepaliveGraceMs) ? Number(config.keepaliveGraceMs) : 15000;
+    constructor({ twitchApi, channelLogin, reconnectBaseMs, maxReconnectMs, keepaliveGraceMs }, onRedeem) {
+        this.twitchApi = twitchApi;
+        this.channelLogin = channelLogin;
+        this.reconnectBaseMs = Number.isFinite(reconnectBaseMs) ? Number(reconnectBaseMs) : 5000;
+        this.maxReconnectMs = Number.isFinite(maxReconnectMs) ? Number(maxReconnectMs) : 60000;
+        this.keepaliveGraceMs = Number.isFinite(keepaliveGraceMs) ? Number(keepaliveGraceMs) : 15000;
         this.onRedeem = typeof onRedeem === "function" ? onRedeem : null;
 
         this.socketUrl = "wss://eventsub.wss.twitch.tv/ws";
@@ -29,81 +25,24 @@ class ChannelPointsWatcher {
     }
 
     async resolveAccessToken() {
-        if (typeof this.accessTokenProvider === "function") {
-            try {
-                const provided = this.accessTokenProvider();
-                const token = provided instanceof Promise ? await provided : provided;
-                if (typeof token === "string" && token.trim()) {
-                    this.accessToken = token.trim();
-                    return this.accessToken;
-                }
-            } catch (err) {
-                log("warn", `Channel points watcher failed to get access token: ${err.message}`);
-            }
-        }
-        if (typeof this.accessToken === "string" && this.accessToken.trim()) {
-            this.accessToken = this.accessToken.trim();
-            return this.accessToken;
-        }
-        return null;
-    }
-
-    async refreshAccessTokenIfAvailable() {
-        if (typeof this.accessTokenRefresher !== "function") {
-            return false;
-        }
-        try {
-            const result = await this.accessTokenRefresher();
-            if (typeof result === "string" && result.trim()) {
-                this.accessToken = result.trim();
-                return true;
-            }
-            if (result) {
-                const token = await this.resolveAccessToken();
-                return typeof token === "string" && token.length > 0;
-            }
-        } catch (err) {
-            log("warn", `Channel points watcher failed to refresh access token: ${err.message}`);
-        }
-        return false;
+        return this.twitchApi.getAccessToken();
     }
 
     async fetchWithAuthRetry(makeRequest) {
-        let token = await this.resolveAccessToken();
+        const token = await this.resolveAccessToken();
         if (!token) {
             log("warn", "Channel points watcher has no access token available.");
             return null;
         }
-        let response = await makeRequest(token);
-        if (response?.status === 429) {
-            log("warn", "Received 429 (Too Many Requests) from Twitch API - rate limited");
-            return response;
-        }
-        if (response?.status === 401) {
-            const refreshed = await this.refreshAccessTokenIfAvailable();
-            if (!refreshed) {
-                return response;
-            }
-            token = await this.resolveAccessToken();
-            if (!token) {
-                return response;
-            }
-            response = await makeRequest(token);
-        }
-        return response;
+        return makeRequest(token);
     }
 
     async start() {
         if (this.started) {
             return;
         }
-        const token = await this.resolveAccessToken();
-        if (!token) {
-            log("warn", "Channel points watcher is enabled but twitch.apiToken was not provided.");
-            return;
-        }
-        if (!this.clientId) {
-            log("warn", "Channel points watcher requires a Twitch clientId.");
+        if (!this.twitchApi) {
+            log("warn", "Channel points watcher requires a TwitchApi instance.");
             return;
         }
         this.started = true;
@@ -145,25 +84,10 @@ class ChannelPointsWatcher {
     }
 
     async ensureBroadcasterId() {
-        if (this.broadcasterId) {
-            return this.broadcasterId;
-        }
-        const response = await this.fetchWithAuthRetry((token) =>
-            fetch(`https://api.twitch.tv/helix/users?login=${encodeURIComponent(this.channelLogin)}`, {
-                headers: {
-                    "Client-Id": this.clientId,
-                    Authorization: `Bearer ${token}`
-                }
-            })
-        );
-        if (!response) {
-            throw new Error("Helix users request failed: missing access token");
-        }
-        if (!response.ok) {
-            throw new Error(`Helix users request failed with status ${response.status}`);
-        }
-        const payload = await response.json();
-        this.broadcasterId = payload?.data?.[0]?.id || null;
+        if (this.broadcasterId) return this.broadcasterId;
+        const user = await this.twitchApi.getUserByName(this.channelLogin);
+        if (!user) throw new Error(`Could not resolve broadcaster for ${this.channelLogin}`);
+        this.broadcasterId = user.id;
         return this.broadcasterId;
     }
 
@@ -472,11 +396,12 @@ class ChannelPointsWatcher {
         }
         this.pendingSubscription = true;
         try {
+            const clientId = this.twitchApi.authProvider.clientId;
             const response = await this.fetchWithAuthRetry((token) =>
                 fetch("https://api.twitch.tv/helix/eventsub/subscriptions", {
                     method: "POST",
                     headers: {
-                        "Client-Id": this.clientId,
+                        "Client-Id": clientId,
                         Authorization: `Bearer ${token}`,
                         "Content-Type": "application/json"
                     },
@@ -541,4 +466,4 @@ class ChannelPointsWatcher {
     }
 }
 
-module.exports = ChannelPointsWatcher;
+export { ChannelPointsWatcher };
