@@ -1,5 +1,5 @@
 import { log } from '../logger.js';
-import { normalizeWhitespace, clampResponseLength, stripAccents } from '../utils/text.js';
+import { normalizeWhitespace, stripAccents } from '../utils/text.js';
 
 export class AiController {
   constructor({ groqConfig, persona, lore, aiConfig, aliases }) {
