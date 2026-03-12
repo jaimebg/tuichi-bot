@@ -58,6 +58,7 @@ Bot
 - Scheduled tasks via `Scheduler` module (replaces manual setInterval).
 - Daily SQLite backup to `data/backups/` (7-day retention).
 - Deploy: `scripts/deploy.sh` (test -> git pull -> restart -> health check).
+- Sync rewards to Twitch: `scripts/addRewards.js` (creates/deletes rewards based on `sync_to_twitch` flag in `mediaRewards.json`).
 
 ## Conventions
 
