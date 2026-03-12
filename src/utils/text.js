@@ -2,6 +2,17 @@ export function normalizeWhitespace(text) {
   return typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : '';
 }
 
+export function preserveNewlines(text) {
+  if (typeof text !== 'string') return '';
+  return text
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 export function clampResponseLength(text, maxChars) {
   const normalized = normalizeWhitespace(text);
   if (!normalized) return '';

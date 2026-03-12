@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeWhitespace, clampResponseLength } from '../../src/utils/text.js';
+import { normalizeWhitespace, clampResponseLength, preserveNewlines } from '../../src/utils/text.js';
 
 describe('normalizeWhitespace', () => {
   it('collapses multiple spaces', () => {
@@ -11,6 +11,27 @@ describe('normalizeWhitespace', () => {
   });
   it('returns empty for non-string', () => {
     assert.equal(normalizeWhitespace(null), '');
+  });
+});
+
+describe('preserveNewlines', () => {
+  it('preserves single newlines', () => {
+    assert.equal(preserveNewlines('line1\nline2'), 'line1\nline2');
+  });
+  it('collapses multiple blank lines into one', () => {
+    assert.equal(preserveNewlines('line1\n\n\nline2'), 'line1\n\nline2');
+  });
+  it('trims trailing whitespace per line', () => {
+    assert.equal(preserveNewlines('hello   \nworld  '), 'hello\nworld');
+  });
+  it('collapses multiple spaces within a line', () => {
+    assert.equal(preserveNewlines('hello   world'), 'hello world');
+  });
+  it('returns empty for non-string', () => {
+    assert.equal(preserveNewlines(null), '');
+  });
+  it('handles Windows line endings', () => {
+    assert.equal(preserveNewlines('line1\r\nline2'), 'line1\nline2');
   });
 });
 
