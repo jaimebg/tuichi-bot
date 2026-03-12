@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { normalizeWhitespace } from './utils/text.js';
+import { normalizeWhitespace, preserveNewlines } from './utils/text.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -39,13 +39,13 @@ function loadGreetings(filePath) {
 }
 
 function loadPersona(filePath) {
-  const p = normalizeWhitespace(readTextFile(filePath, 'persona'));
+  const p = preserveNewlines(readTextFile(filePath, 'persona'));
   if (!p) throw new Error('Persona file cannot be empty.');
   return p;
 }
 
 function loadLore(filePath) {
-  try { return normalizeWhitespace(readTextFile(filePath, 'lore')) || ''; }
+  try { return preserveNewlines(readTextFile(filePath, 'lore')) || ''; }
   catch (_) { return ''; }
 }
 
