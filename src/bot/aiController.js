@@ -1,5 +1,5 @@
 import { log } from '../logger.js';
-import { normalizeWhitespace, clampResponseLength } from '../utils/text.js';
+import { normalizeWhitespace, clampResponseLength, stripAccents } from '../utils/text.js';
 
 export class AiController {
   constructor({ groqConfig, persona, lore, aiConfig, aliases }) {
@@ -208,21 +208,41 @@ export class AiController {
 
   /** Extract personality traits and themes from message. */
   extractIntelligence(userMemory, userKey, message) {
-    const lower = message.toLowerCase();
-    if (lower.includes('lol') || lower.includes('haha') || lower.includes('\u{1F602}'))
-      userMemory.addPersonalityTrait(userKey, 'humorous');
-    if (lower.includes('thanks') || lower.includes('thx') || lower.includes('appreciate'))
-      userMemory.addPersonalityTrait(userKey, 'polite');
-    if (lower.includes('!') && lower.length < 20)
-      userMemory.addPersonalityTrait(userKey, 'enthusiastic');
-    if (lower.includes('?'))
-      userMemory.addPersonalityTrait(userKey, 'curious');
+    const lower = stripAccents(message.toLowerCase());
+
+    const traits = [
+      [['jaja', 'xdd', 'xd', 'lmao', 'jsjsj', 'jiji'], 'graciosa'],
+      [['gracias', 'ty', 'grax', 'thx'], 'agradecida'],
+      [['illo', 'bro', 'tia', 'mana', 'tio', 'macho', 'colega', 'crack', 'chaval', 'chavala'], 'colegui'],
+      [['guapo', 'guapa', 'cari', 'amor', 'bb', 'bonita', 'cielo', 'reina'], 'flirty'],
+      [['cabrona', 'perra', 'zorra', 'mamonazo', 'imbecil'], 'borde_cariñosa'],
+      [['hostia', 'joder', 'mierda', 'cono', 'puta'], 'malhablada']
+    ];
+
+    for (const [keywords, trait] of traits) {
+      if (keywords.some(k => lower.includes(k)))
+        userMemory.addPersonalityTrait(userKey, trait);
+    }
+
+    if (lower.includes('!') && message.length < 15 && /[a-z]/.test(lower))
+      userMemory.addPersonalityTrait(userKey, 'intensa');
+
+    const interrogatives = ['que ', 'como ', 'por que ', 'donde ', 'cuando ', 'cual ', 'quien '];
+    if (interrogatives.some(q => lower.startsWith(q)))
+      userMemory.addPersonalityTrait(userKey, 'curiosa');
 
     const themes = [
-      [['playing','game','level','boss','win','lose','score'], 'gaming'],
-      [['code','programming','bug','feature','api','github'], 'technology'],
-      [['song','music','beat','artist','album','playlist'], 'music']
+      [['juego', 'jugar', 'partida', 'boss', 'nivel', 'ganar', 'perder', 'stream'], 'gaming'],
+      [['codigo', 'programar', 'bug', 'feature', 'api', 'github', 'code'], 'tecnologia'],
+      [['cancion', 'musica', 'playlist', 'tema', 'artista', 'cantar'], 'musica'],
+      [['curro', 'trabajo', 'jefe', 'oficina', 'turno', 'reunion'], 'curro'],
+      [['comer', 'cena', 'cocinar', 'hambre', 'receta', 'comida'], 'comida'],
+      [['gym', 'entreno', 'correr', 'pesas', 'deporte'], 'deporte'],
+      [['pedo', 'resaca', 'birra', 'copa', 'fiesta', 'botellon', 'salir', 'plan', 'ligar'], 'puterio'],
+      [['serie', 'peli', 'pelicula', 'netflix', 'capitulo', 'temporada'], 'series'],
+      [['drama', 'cotilleo', 'lio', 'lia', 'follon', 'polemico'], 'cotilleo']
     ];
+
     for (const [keywords, theme] of themes) {
       if (keywords.some(k => lower.includes(k)))
         userMemory.addConversationTheme(userKey, theme);
