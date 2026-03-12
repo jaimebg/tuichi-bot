@@ -20,3 +20,8 @@ export function clampResponseLength(text, maxChars) {
   if (maxChars <= 3) return normalized.slice(0, maxChars);
   return normalized.slice(0, maxChars - 3).trimEnd() + '...';
 }
+
+export function stripAccents(text) {
+  if (typeof text !== 'string') return '';
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}

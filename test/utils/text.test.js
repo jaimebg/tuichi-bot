@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeWhitespace, clampResponseLength, preserveNewlines } from '../../src/utils/text.js';
+import { normalizeWhitespace, clampResponseLength, preserveNewlines, stripAccents } from '../../src/utils/text.js';
 
 describe('normalizeWhitespace', () => {
   it('collapses multiple spaces', () => {
@@ -46,5 +46,22 @@ describe('clampResponseLength', () => {
   });
   it('returns empty for empty input', () => {
     assert.equal(clampResponseLength('', 100), '');
+  });
+});
+
+describe('stripAccents', () => {
+  it('removes Spanish diacritics', () => {
+    assert.equal(stripAccents('código'), 'codigo');
+    assert.equal(stripAccents('canción'), 'cancion');
+    assert.equal(stripAccents('reunión'), 'reunion');
+  });
+  it('preserves non-accented text', () => {
+    assert.equal(stripAccents('hello world'), 'hello world');
+  });
+  it('handles ñ as expected', () => {
+    assert.equal(stripAccents('año'), 'ano');
+  });
+  it('returns empty for non-string', () => {
+    assert.equal(stripAccents(null), '');
   });
 });
