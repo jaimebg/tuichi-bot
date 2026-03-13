@@ -250,7 +250,7 @@ export class Bot {
         '!trivia - Trivia con IA (responder con !a, !b, !c, !d) | ' +
         '!aventura [tema] - Aventura interactiva (votar con !1, !2...) | ' +
         '!survive - Battle royale de chat | ' +
-        `También puedes mencionarme con @${this.config.twitch.username} para hablar conmigo`
+        `También puedes mencionarme con @${this.config.twitch.username} para hablar conmigo guapa xdd`
       );
       return;
     }
