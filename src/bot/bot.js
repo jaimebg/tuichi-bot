@@ -241,6 +241,41 @@ export class Bot {
     this.metrics.increment('messagesReceived');
     this.inactivityTracker.updateActivity(userKey, displayName);
 
+    // Help command (everyone)
+    if (message === '!ayuda') {
+      this.chat.sendLongMessage(
+        '📋 Comandos: ' +
+        '!ayuda - Lista de comandos | ' +
+        '!poll pregunta | opción1 | opción2 [| segundos] - Crear encuesta (votar con !1, !2...) | ' +
+        '!trivia - Trivia con IA (responder con !a, !b, !c, !d) | ' +
+        '!aventura [tema] - Aventura interactiva (votar con !1, !2...) | ' +
+        '!survive - Battle royale de chat | ' +
+        `También puedes mencionarme con @${this.config.twitch.username} para hablar conmigo`
+      );
+      return;
+    }
+
+    // Status command (owner only)
+    if (message === '!status' && userKey === 'jaimevarecto') {
+      const chatOk = this.chat.isHealthy(this.streamMonitor?.isOnline ?? false);
+      let dbOk = false;
+      try { dbOk = !!this.db.raw.prepare('SELECT 1 as v').get(); } catch { /* db unavailable */ }
+      const uptimeS = Math.floor((Date.now() - this.metrics.startedAt) / 1000);
+      const hours = Math.floor(uptimeS / 3600);
+      const mins = Math.floor((uptimeS % 3600) / 60);
+      const circuit = this.ai?.getCircuitState?.() ?? 'unknown';
+      const mem = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+      const snap = this.metrics.getSnapshot();
+      this.chat.sendMessage(
+        `🤖 Status: ${chatOk && dbOk ? '✅ OK' : '⚠️ Problemas'} | ` +
+        `Uptime: ${hours}h${mins}m | ` +
+        `Chat: ${chatOk ? '✅' : '❌'} | DB: ${dbOk ? '✅' : '❌'} | ` +
+        `AI: ${circuit} | Mem: ${mem}MB | ` +
+        `Msgs: ${snap.messagesReceived ?? 0}↓ ${snap.messagesSent ?? 0}↑`
+      );
+      return;
+    }
+
     // Greetings toggle (owner only)
     if (message === '!saluditos' && userKey === 'jaimevarecto') {
       this.greetingsEnabled = !this.greetingsEnabled;
