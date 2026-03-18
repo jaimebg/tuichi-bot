@@ -250,6 +250,7 @@ export class Bot {
         '!trivia - Trivia con IA (responder con !a, !b, !c, !d) | ' +
         '!aventura [tema] - Aventura interactiva (votar con !1, !2...) | ' +
         '!survive - Battle royale de chat | ' +
+        '!vicky [mensaje] - Consulta al oráculo de Vicky Perez | ' +
         `También puedes mencionarme con @${this.config.twitch.username} para hablar conmigo guapa xdd`
       );
       return;
@@ -280,6 +281,12 @@ export class Bot {
     if (message === '!saluditos' && userKey === 'jaimevarecto') {
       this.greetingsEnabled = !this.greetingsEnabled;
       this.chat.sendMessage(`Saludos ${this.greetingsEnabled ? 'activados' : 'desactivados'}`);
+      return;
+    }
+
+    // Vicky oracle command
+    if (message.startsWith('!vicky')) {
+      this._handleVicky({ userKey, displayName, message, msg });
       return;
     }
 
@@ -369,6 +376,43 @@ export class Bot {
       log('warn', `Failed spontaneous reply to ${displayName}: ${err.message}`);
     } finally {
       this.ai.pendingRequests.delete(`spontaneous:${userKey}`);
+    }
+  }
+
+  // --- Vicky oracle ---
+  async _handleVicky({ userKey, displayName, message, msg }) {
+    if (!this.ai.groqConfig) return;
+    if (!this.ai.canSendAIResponse(userKey)) return;
+    if (this.ai.pendingRequests.has(`vicky:${userKey}`)) return;
+
+    this.ai.pendingRequests.add(`vicky:${userKey}`);
+    try {
+      const alias = this.ai._getAlias(userKey, displayName);
+      const userMessage = message.replace(/^!vicky\s*/i, '').trim();
+      const prompt = userMessage
+        ? `${alias} te dice: "${userMessage}"\n\nResponde como Vicky Perez.`
+        : `${alias} te invoca! Suelta una de tus perlas de sabiduria, un consejo de maquillaje, una queja dramatica o una profecia caotica. Se tu misma.`;
+
+      const msgs = [
+        { role: 'system', content: `${this.config.resources.vicky}\nResponde en no mas de ${this.ai.maxChars} caracteres.` },
+        { role: 'user', content: prompt }
+      ];
+
+      const reply = await this.ai.fetchGroqResponse(msgs);
+      if (reply === null) {
+        await this.chat.sendMessage('opalco! ahora mismo no puedo hablar que tengo la Bruja Averia encima', msg);
+        return;
+      }
+      const finalMessage = clampResponseLength(reply, this.ai.maxChars);
+      if (!finalMessage?.trim()) return;
+
+      await this.chat.sendMessage(finalMessage, msg);
+      this.ai._recordResponse(userKey);
+      log('debug', `Vicky replied to ${displayName}: ${finalMessage.slice(0, 50)}...`);
+    } catch (err) {
+      log('warn', `Vicky failed for ${displayName}: ${err.message}`);
+    } finally {
+      this.ai.pendingRequests.delete(`vicky:${userKey}`);
     }
   }
 

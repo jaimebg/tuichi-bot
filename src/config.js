@@ -68,6 +68,7 @@ export function buildConfig(env = process.env) {
   const persona = loadPersona(path.join(RESOURCES_DIR, 'persona.txt'));
   const lore = loadLore(path.join(RESOURCES_DIR, 'lore.txt'));
   const aliases = loadAliases(path.join(RESOURCES_DIR, 'aliases.txt'));
+  const vicky = loadLore(path.join(RESOURCES_DIR, 'vicky.txt'));
   return Object.freeze({
     twitch: Object.freeze({
       username: vars.TWITCH_USERNAME, channel: vars.TWITCH_CHANNEL,
@@ -111,7 +112,7 @@ export function buildConfig(env = process.env) {
     spontaneousReplyChance: 0.05,
     spontaneousReplyCooldownMs: 5 * 60 * 1000,
     logLevel: env.LOG_LEVEL || 'info',
-    resources: Object.freeze({ greetings, persona, lore, aliases }),
+    resources: Object.freeze({ greetings, persona, lore, aliases, vicky }),
     paths: Object.freeze({
       root: ROOT, resources: RESOURCES_DIR,
       data: path.join(ROOT, 'data'), db: path.join(ROOT, 'data', 'tuichi.db')
