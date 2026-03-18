@@ -382,8 +382,9 @@ export class Bot {
   // --- Vicky oracle ---
   async _handleVicky({ userKey, displayName, message, msg }) {
     if (!this.ai.groqConfig) return;
-    if (!this.ai.canSendAIResponse(userKey)) return;
     if (this.ai.pendingRequests.has(`vicky:${userKey}`)) return;
+    const ready = await this.ai.waitForCooldown(userKey);
+    if (!ready) return;
 
     this.ai.pendingRequests.add(`vicky:${userKey}`);
     try {
@@ -518,8 +519,9 @@ export class Bot {
 
   async _respondToMention({ userKey, displayName, message, msg, mentionContext, threadId, timestamp }) {
     if (!this.ai.groqConfig) return;
-    if (!this.ai.canSendAIResponse(userKey)) return;
     if (this.ai.pendingRequests.has(userKey)) return;
+    const ready = await this.ai.waitForCooldown(userKey);
+    if (!ready) return;
 
     this.ai.pendingRequests.add(userKey);
     try {

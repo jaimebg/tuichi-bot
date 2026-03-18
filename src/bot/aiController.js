@@ -36,6 +36,22 @@ export class AiController {
     return true;
   }
 
+  /** Wait until cooldowns expire (max 5 s). Returns true if ready, false on timeout. */
+  async waitForCooldown(userKey, maxWaitMs = 5000) {
+    const now = Date.now();
+    const globalRemaining = this.globalCooldownMs > 0
+      ? Math.max(0, this.globalCooldownMs - (now - this.lastGlobalResponseAt))
+      : 0;
+    const lastUser = this.userLastResponseAt.get(userKey);
+    const userRemaining = (this.userCooldownMs > 0 && lastUser)
+      ? Math.max(0, this.userCooldownMs - (now - lastUser))
+      : 0;
+    const waitMs = Math.max(globalRemaining, userRemaining);
+    if (waitMs > maxWaitMs) return false;
+    if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
+    return true;
+  }
+
   _recordResponse(userKey) {
     const now = Date.now();
     this.userLastResponseAt.set(userKey, now);

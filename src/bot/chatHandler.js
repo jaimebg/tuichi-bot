@@ -20,6 +20,13 @@ export class ChatHandler extends EventEmitter {
     });
     this._registerHandlers();
     this._lastActivityAt = Date.now();
+
+    // Outgoing message queue (Twitch rate-limit protection)
+    this._queue = [];
+    this._draining = false;
+    this._lastSendAt = 0;
+    this._sendIntervalMs = 350;
+    this._maxQueueSize = 20;
   }
 
   _registerHandlers() {
@@ -67,15 +74,41 @@ export class ChatHandler extends EventEmitter {
     this.client.connect();
   }
 
-  /** Send a message to the channel. */
+  /** Send a message to the channel (queued to respect Twitch rate limits). */
   async sendMessage(text, replyToMsg = null) {
     const normalized = normalizeWhitespace(text);
     if (!normalized) return;
-    if (replyToMsg) {
-      await this.client.say(this.channel, normalized, { replyTo: replyToMsg });
-    } else {
-      await this.client.say(this.channel, normalized);
+    return new Promise((resolve, reject) => {
+      if (this._queue.length >= this._maxQueueSize) {
+        log('warn', `Send queue full (${this._maxQueueSize}), dropping message`);
+        reject(new Error('Send queue full'));
+        return;
+      }
+      this._queue.push({ text: normalized, replyToMsg, resolve, reject });
+      this._drain();
+    });
+  }
+
+  async _drain() {
+    if (this._draining) return;
+    this._draining = true;
+    while (this._queue.length) {
+      const item = this._queue.shift();
+      const wait = this._sendIntervalMs - (Date.now() - this._lastSendAt);
+      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      try {
+        if (item.replyToMsg) {
+          await this.client.say(this.channel, item.text, { replyTo: item.replyToMsg });
+        } else {
+          await this.client.say(this.channel, item.text);
+        }
+        this._lastSendAt = Date.now();
+        item.resolve();
+      } catch (err) {
+        item.reject(err);
+      }
     }
+    this._draining = false;
   }
 
   /** Send a long message, splitting at word boundaries if needed. */
