@@ -395,7 +395,7 @@ export class Bot {
         : `${alias} te invoca! Suelta una de tus perlas de sabiduria, un consejo de maquillaje, una queja dramatica o una profecia caotica. Se tu misma.`;
 
       const msgs = [
-        { role: 'system', content: `${this.config.resources.persona}\n\nAhora adopta este personaje:\n${this.config.resources.vicky}\nResponde en no mas de ${this.ai.maxChars} caracteres.` },
+        { role: 'system', content: `${this.config.resources.vicky}\nResponde en no mas de ${this.ai.maxChars} caracteres.` },
         { role: 'user', content: prompt }
       ];
 
