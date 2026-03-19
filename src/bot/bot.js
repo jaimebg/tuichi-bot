@@ -251,7 +251,7 @@ export class Bot {
         '!trivia - Trivia con IA (responder con !a, !b, !c, !d) | ' +
         '!aventura [tema] - Aventura interactiva (votar con !1, !2...) | ' +
         '!survive - Battle royale de chat | ' +
-        '!vicky [mensaje] - Consulta al oráculo de Vicky Perez | ' +
+        '!vicky [mensaje] - Habla con Vicky Perez | ' +
         `También puedes mencionarme con @${this.config.twitch.username} para hablar conmigo guapa xdd`
       );
       return;
@@ -380,7 +380,7 @@ export class Bot {
     }
   }
 
-  // --- Vicky oracle ---
+  // --- Vicky chatbot ---
   async _handleVicky({ userKey, displayName, message, msg }) {
     if (!this.ai.groqConfig) return;
     if (this.ai.pendingRequests.has(`vicky:${userKey}`)) return;
@@ -391,12 +391,21 @@ export class Bot {
     try {
       const alias = this.ai._getAlias(userKey, displayName);
       const userMessage = message.replace(/^!vicky\s*/i, '').trim();
+
+      // Build conversation history from thread
+      const threadId = this.conversationThreads.getOrCreateThread(userKey);
+      this.vickyThreads.add(threadId);
+      const threadHistory = this.conversationThreads.getThread(threadId, 6)
+        .filter(m => m.timestamp > Date.now() - 10 * 60 * 1000)
+        .map(m => ({ role: m.role, content: m.content }));
+
       const prompt = userMessage
-        ? `${alias} te dice: "${userMessage}"\n\nResponde como Vicky Perez.`
-        : `${alias} te invoca! Suelta una de tus perlas de sabiduria, un consejo de maquillaje, una queja dramatica o una profecia caotica. Se tu misma.`;
+        ? `${alias} te dice: "${userMessage}"`
+        : `${alias} aparece en el chat. Salúdale o suelta algo típico tuyo.`;
 
       const msgs = [
         { role: 'system', content: `${this.config.resources.vicky}\nResponde en no mas de ${this.ai.maxChars} caracteres.` },
+        ...threadHistory,
         { role: 'user', content: prompt }
       ];
 
@@ -408,11 +417,8 @@ export class Bot {
       const finalMessage = clampResponseLength(reply, this.ai.maxChars);
       if (!finalMessage?.trim()) return;
 
-      // Create thread so replies continue as Vicky
-      const threadId = this.conversationThreads.getOrCreateThread(userKey);
       this.conversationThreads.addMessage(threadId, 'user', message, Date.now());
       this.conversationThreads.addMessage(threadId, 'assistant', finalMessage, Date.now());
-      this.vickyThreads.add(threadId);
 
       await this.chat.sendMessage(finalMessage, msg);
       this.ai._recordResponse(userKey);
