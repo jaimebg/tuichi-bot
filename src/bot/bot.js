@@ -285,8 +285,8 @@ export class Bot {
       return;
     }
 
-    // Vicky oracle command
-    if (message.startsWith('!vicky')) {
+    // Vicky chatbot command
+    if (message.startsWith('!vicky') || message.startsWith('!vickiña')) {
       this._handleVicky({ userKey, displayName, message, msg });
       return;
     }
@@ -390,7 +390,7 @@ export class Bot {
     this.ai.pendingRequests.add(`vicky:${userKey}`);
     try {
       const alias = this.ai._getAlias(userKey, displayName);
-      const userMessage = message.replace(/^!vicky\s*/i, '').trim();
+      const userMessage = message.replace(/^!vicki[ñn]a\s*|^!vicky\s*/i, '').trim();
 
       // Build conversation history from thread
       const threadId = this.conversationThreads.getOrCreateThread(userKey);
@@ -420,7 +420,7 @@ export class Bot {
       this.conversationThreads.addMessage(threadId, 'user', message, Date.now());
       this.conversationThreads.addMessage(threadId, 'assistant', finalMessage, Date.now());
 
-      await this.chat.sendMessage(finalMessage, msg);
+      await this.chat.sendMessage(`✅ Vickiña:${finalMessage}`, msg);
       this.ai._recordResponse(userKey);
       log('debug', `Vicky replied to ${displayName}: ${finalMessage.slice(0, 50)}...`);
     } catch (err) {
@@ -580,7 +580,8 @@ export class Bot {
       }
 
       // @twurple reply uses { replyTo: msg } — pass the raw msg object
-      await this.chat.sendMessage(finalMessage, msg);
+      const outMessage = isVickyThread ? `✅ Vickiña:${finalMessage}` : finalMessage;
+      await this.chat.sendMessage(outMessage, msg);
 
       this.conversationThreads.addMessage(threadId, 'assistant', finalMessage, Date.now());
       this.ai._recordResponse(userKey);
