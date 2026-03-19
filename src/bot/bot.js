@@ -395,13 +395,13 @@ export class Bot {
         : `${alias} te invoca! Suelta una de tus perlas de sabiduria, un consejo de maquillaje, una queja dramatica o una profecia caotica. Se tu misma.`;
 
       const msgs = [
-        { role: 'system', content: `${this.config.resources.vicky}\nResponde en no mas de ${this.ai.maxChars} caracteres.` },
+        { role: 'system', content: `${this.config.resources.persona}\n\nAhora adopta este personaje:\n${this.config.resources.vicky}\nResponde en no mas de ${this.ai.maxChars} caracteres.` },
         { role: 'user', content: prompt }
       ];
 
       const reply = await this.ai.fetchGroqResponse(msgs);
       if (reply === null) {
-        await this.chat.sendMessage('opalco! ahora mismo no puedo hablar que tengo la Bruja Averia encima', msg);
+        await this.chat.sendMessage('ahora mismo no puedo hablar que tengo la Bruja Averia encima', msg);
         return;
       }
       const finalMessage = clampResponseLength(reply, this.ai.maxChars);
