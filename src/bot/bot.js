@@ -420,7 +420,7 @@ export class Bot {
       this.conversationThreads.addMessage(threadId, 'user', message, Date.now());
       this.conversationThreads.addMessage(threadId, 'assistant', finalMessage, Date.now());
 
-      await this.chat.sendMessage(`✅ Vickiña:${finalMessage}`, msg);
+      await this.chat.sendMessage(`✅Vickiña: ${finalMessage}`, msg);
       this.ai._recordResponse(userKey);
       log('debug', `Vicky replied to ${displayName}: ${finalMessage.slice(0, 50)}...`);
     } catch (err) {
@@ -580,7 +580,7 @@ export class Bot {
       }
 
       // @twurple reply uses { replyTo: msg } — pass the raw msg object
-      const outMessage = isVickyThread ? `✅ Vickiña:${finalMessage}` : finalMessage;
+      const outMessage = isVickyThread ? `✅Vickiña: ${finalMessage}` : finalMessage;
       await this.chat.sendMessage(outMessage, msg);
 
       this.conversationThreads.addMessage(threadId, 'assistant', finalMessage, Date.now());
