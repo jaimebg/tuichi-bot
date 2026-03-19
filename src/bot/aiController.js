@@ -141,7 +141,8 @@ export class AiController {
     const descriptor = context.mentionContext?.isReplyToBot
       ? 'El espectador esta respondiendo directamente a tu ultimo mensaje.'
       : 'El espectador te esta mencionando en el chat.';
-    const systemContent = `${this.persona}${contextText}\n${limitsLine}`;
+    const activePersona = context.personaOverride || this.persona;
+    const systemContent = `${activePersona}${contextText}\n${limitsLine}`;
 
     // Include conversation history as separate API messages for multi-turn quality
     const history = Array.isArray(context.conversationHistory)

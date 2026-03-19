@@ -67,6 +67,7 @@ export class Bot {
     this.messageLogger = new MessageLogger();
     this.inactivityTracker = new InactivityTracker(15, 90000, IGNORED_USERS);
     this.lastSpontaneousReplyAt = 0;
+    this.vickyThreads = new Set();
 
     // Games (AI callback injected, not imported)
     this.gameController = new GameController({
@@ -407,6 +408,12 @@ export class Bot {
       const finalMessage = clampResponseLength(reply, this.ai.maxChars);
       if (!finalMessage?.trim()) return;
 
+      // Create thread so replies continue as Vicky
+      const threadId = this.conversationThreads.getOrCreateThread(userKey);
+      this.conversationThreads.addMessage(threadId, 'user', message, Date.now());
+      this.conversationThreads.addMessage(threadId, 'assistant', finalMessage, Date.now());
+      this.vickyThreads.add(threadId);
+
       await this.chat.sendMessage(finalMessage, msg);
       this.ai._recordResponse(userKey);
       log('debug', `Vicky replied to ${displayName}: ${finalMessage.slice(0, 50)}...`);
@@ -547,10 +554,12 @@ export class Bot {
         .filter(m => m.timestamp > Date.now() - 10 * 60 * 1000)
         .map(m => ({ role: m.role, content: m.content }));
 
+      const isVickyThread = this.vickyThreads.has(threadId);
       const chatMessages = this.ai.buildChatMessages({
         userKey, displayName, message, mentionContext,
         streamContext, recentChat, userSummary, userProfile,
-        threadHistory: threadContext, conversationHistory
+        threadHistory: threadContext, conversationHistory,
+        ...(isVickyThread && { personaOverride: this.config.resources.vicky })
       });
 
       let aiReply = await this.ai.fetchGroqResponse(chatMessages);
