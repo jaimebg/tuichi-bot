@@ -125,17 +125,24 @@ export class SurviveManager {
         );
 
         // Check if game should continue
-        if (survivorsThisRoundCount <= 1) {
-            // Game ends – either single winner or nobody survived
+        // End if 0-1 survived, or if only 2 players were in the round (avoids infinite loop when both always survive)
+        const wasLastStandRound = this.activeSurvive.currentRoundPlayers.size <= 2;
+        if (survivorsThisRoundCount <= 1 || wasLastStandRound) {
+            // Game ends – either single winner, nobody survived, or final 2-player showdown
             const finalSnapshot = this.getResults() || {};
             this.activeSurvive.hasEnded = true;
+
+            let reason;
+            if (survivorsThisRoundCount === 0) reason = "everyone_died";
+            else if (wasLastStandRound) reason = "last_survivors";
+            else reason = "last_survivor";
 
             return {
                 ...finalSnapshot,
                 eliminatedThisRound,
                 roundNumber: currentRoundNumber,
                 continueGame: false,
-                reason: survivorsThisRoundCount === 0 ? "everyone_died" : "last_survivor"
+                reason
             };
         }
 

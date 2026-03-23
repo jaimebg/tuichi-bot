@@ -21,21 +21,30 @@ export class TriviaManager {
             return null; // Trivia already active
         }
 
-        const prompt = `Genera UNA pregunta de trivia en español sobre la categoría: "${category}".
+        const subtopics = [
+            'historia antigua', 'ciencia y tecnología', 'videojuegos clásicos', 'anime y manga',
+            'música pop', 'cine y series', 'deportes', 'mitología', 'geografía', 'gastronomía',
+            'literatura', 'arte', 'astronomía', 'biología', 'matemáticas curiosas', 'récords mundiales',
+            'cultura pop de los 90', 'inventos históricos', 'animales raros', 'idiomas del mundo'
+        ];
+        const randomSubtopic = subtopics[Math.floor(Math.random() * subtopics.length)];
+        const seed = Math.floor(Math.random() * 99999);
+
+        const prompt = `Genera UNA pregunta de trivia ORIGINAL en español (id:${seed}).
+Categoría: "${category}". Subtema sugerido: "${randomSubtopic}".
 
 REQUISITOS:
-- Pregunta clara y emocionante
-- 4 opciones múltiples (a, b, c, d)
-- Una respuesta correcta evidente
-- Nivel de dificultad: medio
-- Tema relacionado con Twitch, gaming, Pentesilea, o culture general según la categoría
+- Pregunta sorprendente, poco común y específica (no la primera que se te ocurra)
+- 4 opciones múltiples (a, b, c, d) plausibles pero con una sola correcta
+- Nivel de dificultad: medio-alto
+- NO uses preguntas genéricas ni las más famosas del tema
 
-Responde en JSON: 
+Responde en JSON:
 {
   "question": "La pregunta exacta",
   "options": {
     "a": "Opción A",
-    "b": "Opción B", 
+    "b": "Opción B",
     "c": "Opción C",
     "d": "Opción D"
   },
@@ -46,9 +55,9 @@ Responde en JSON:
         const chatMessages = [
             {
                 role: "system",
-                content: `Eres un creador de preguntas de trivia entretenidas y bien equilibradas.
-Categoría: ${category}.
-Responde SOLO con JSON válido, sin explicaciones adicionales.`
+                content: `Eres un creador de preguntas de trivia entretenidas, creativas y variadas.
+Categoría: ${category}. Subtema: ${randomSubtopic}.
+Cada pregunta debe ser diferente e inesperada. Responde SOLO con JSON válido, sin explicaciones adicionales.`
             },
             { role: "user", content: prompt }
         ];
