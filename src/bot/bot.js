@@ -274,7 +274,7 @@ export class Bot {
         `Uptime: ${hours}h${mins}m | ` +
         `Chat: ${chatOk ? '✅' : '❌'} | DB: ${dbOk ? '✅' : '❌'} | ` +
         `AI: ${circuit} | Mem: ${mem}MB | ` +
-        `Msgs: ${snap.messagesReceived ?? 0}↓ ${snap.messagesSent ?? 0}↑`
+        `Msgs: ${snap.counters.messagesReceived}↓ ${snap.counters.messagesSent}↑`
       );
       return;
     }
