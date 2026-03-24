@@ -32,9 +32,9 @@ function readTextFile(filePath, label) {
   catch (err) { throw new Error(`Unable to read ${label} file: ${err.message}`); }
 }
 
-function loadGreetings(filePath) {
-  const msgs = readTextFile(filePath, 'greetings').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  if (!msgs.length) throw new Error('Greeting file must contain at least one message.');
+function loadLines(filePath, label) {
+  const msgs = readTextFile(filePath, label).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!msgs.length) throw new Error(`${label} file must contain at least one message.`);
   return msgs;
 }
 
@@ -64,7 +64,8 @@ function loadAliases(filePath) {
 /** Build frozen config from env vars and resource files. */
 export function buildConfig(env = process.env) {
   const vars = validateEnv(env, REQUIRED_ENV);
-  const greetings = loadGreetings(path.join(RESOURCES_DIR, 'greetings.txt'));
+  const greetings = loadLines(path.join(RESOURCES_DIR, 'greetings.txt'), 'greetings');
+  const goodbyes = loadLines(path.join(RESOURCES_DIR, 'goodbyes.txt'), 'goodbyes');
   const persona = loadPersona(path.join(RESOURCES_DIR, 'persona.txt'));
   const lore = loadLore(path.join(RESOURCES_DIR, 'lore.txt'));
   const aliases = loadAliases(path.join(RESOURCES_DIR, 'aliases.txt'));
@@ -112,7 +113,7 @@ export function buildConfig(env = process.env) {
     spontaneousReplyChance: 0.05,
     spontaneousReplyCooldownMs: 5 * 60 * 1000,
     logLevel: env.LOG_LEVEL || 'info',
-    resources: Object.freeze({ greetings, persona, lore, aliases, vicky }),
+    resources: Object.freeze({ greetings, goodbyes, persona, lore, aliases, vicky }),
     paths: Object.freeze({
       root: ROOT, resources: RESOURCES_DIR,
       data: path.join(ROOT, 'data'), db: path.join(ROOT, 'data', 'tuichi.db')

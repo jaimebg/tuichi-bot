@@ -22,6 +22,7 @@ import { normalizeWhitespace, clampResponseLength } from '../utils/text.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
+
 export class Bot {
   constructor(config) {
     this.config = config;
@@ -478,9 +479,15 @@ export class Bot {
   // --- Part handling ---
   _handlePart(userKey, username) {
     if (userKey === this.config.twitch.username) return;
-    if (this.greetingsEnabled && this.silentUsers.has(userKey)) {
-      this.chat.sendMessage(`Venga guapa ${username} vete por donde viniste catJump`);
+
+    const shouldGoodbye = this.greetingsEnabled
+      && !IGNORED_USERS.has(userKey)
+      && (this.userHasChatted.has(userKey) || this.silentUsers.has(userKey));
+
+    if (shouldGoodbye) {
+      this._sendGoodbye(username);
     }
+
     this.presentUsers.delete(userKey);
     this.userHasChatted.delete(userKey);
     this.existingUsers.delete(userKey);
@@ -513,6 +520,19 @@ export class Bot {
     return greetings[idx].replace(/\{user\}/g, username);
   }
 
+  _sendGoodbye(username) {
+    const text = this._pickGoodbye(username);
+    this.chat.sendMessage(text).catch(err =>
+      log('warn', `Failed to send goodbye for ${username}: ${err.message}`)
+    );
+  }
+
+  _pickGoodbye(username) {
+    const goodbyes = this.config.resources.goodbyes;
+    const idx = Math.floor(Math.random() * goodbyes.length);
+    return goodbyes[idx].replace(/\{user\}/g, username);
+  }
+
   // --- Mention/reply handling ---
   _handleMention({ userKey, displayName, message, tags, msg, timestamp }) {
     const mentionToken = `@${this.config.twitch.username}`;
@@ -525,6 +545,7 @@ export class Bot {
 
     const mentionContext = { hasMention, isReplyToBot, replyParentLogin };
     const threadId = this.conversationThreads.getOrCreateThread(userKey, isReplyToBot, replyParentLogin);
+    this.vickyThreads.delete(threadId);
     this.conversationThreads.addMessage(threadId, 'user', message, timestamp);
 
     this._respondToMention({ userKey, displayName, message, msg, mentionContext, threadId, timestamp });
@@ -669,6 +690,9 @@ export class Bot {
   async _saveAll() {
     this.userMemory.cleanup();
     this.conversationThreads.cleanup();
+    for (const threadId of this.vickyThreads) {
+      if (!this.conversationThreads.threads.has(threadId)) this.vickyThreads.delete(threadId);
+    }
     this.userMemory.save();
     this.recentChat.save();
     this.conversationThreads.save();
