@@ -32,10 +32,18 @@ export class RecentChatTracker {
         this.messages = this.messages.filter((msg) => msg.timestamp > cutoff);
     }
 
-    getRecentContext(excludeUser = null) {
+    getRecentContext(excludeUser = null, botUsername = null) {
         this.cleanOldMessages();
         return this.messages
-            .filter((msg) => msg.userKey !== excludeUser)
+            .filter((msg) => {
+                if (msg.userKey === excludeUser) return false;
+                if (botUsername) {
+                    const lower = msg.message.toLowerCase();
+                    if (lower.includes(`@${botUsername}`)) return false;
+                    if (lower.startsWith('!vicky') || lower.startsWith('!vickiña')) return false;
+                }
+                return true;
+            })
             .slice(-10)
             .map((msg) => `${msg.displayName}: ${msg.message}`)
             .join("; ");

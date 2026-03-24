@@ -135,8 +135,6 @@ export class AiController {
       if (profileParts.length) contextParts.push(`Historial de ${alias}: ${profileParts.join('; ')}.`);
     }
 
-    if (context.threadHistory) contextParts.push(`Conversación reciente: ${context.threadHistory}`);
-
     const contextText = contextParts.length ? `\n\nContexto: ${contextParts.join(' ')}` : '';
     const descriptor = context.mentionContext?.isReplyToBot
       ? 'El espectador esta respondiendo directamente a tu ultimo mensaje.'

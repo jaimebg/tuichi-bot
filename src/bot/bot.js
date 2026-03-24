@@ -346,7 +346,7 @@ export class Bot {
     this.ai.pendingRequests.add(`spontaneous:${userKey}`);
     try {
       const alias = this.ai._getAlias(userKey, displayName);
-      const recentChat = this.recentChat.getRecentContext(userKey);
+      const recentChat = this.recentChat.getRecentContext(userKey, this.config.twitch.username);
       const userSummary = this.userMemory.getUserSummary(userKey);
 
       let streamContext = '';
@@ -418,7 +418,7 @@ export class Bot {
       const finalMessage = clampResponseLength(reply, this.ai.maxChars);
       if (!finalMessage?.trim()) return;
 
-      this.conversationThreads.addMessage(threadId, 'user', message, Date.now());
+      this.conversationThreads.addMessage(threadId, 'user', userMessage || message, Date.now());
       this.conversationThreads.addMessage(threadId, 'assistant', finalMessage, Date.now());
 
       await this.chat.sendMessage(`✅Vickiña: ${finalMessage}`, msg);
@@ -546,7 +546,6 @@ export class Bot {
     const mentionContext = { hasMention, isReplyToBot, replyParentLogin };
     const threadId = this.conversationThreads.getOrCreateThread(userKey, isReplyToBot, replyParentLogin);
     this.vickyThreads.delete(threadId);
-    this.conversationThreads.addMessage(threadId, 'user', message, timestamp);
 
     this._respondToMention({ userKey, displayName, message, msg, mentionContext, threadId, timestamp });
   }
@@ -560,24 +559,16 @@ export class Bot {
     this.ai.pendingRequests.add(userKey);
     try {
       // Gather context for AI prompt
-      const alias = this.ai._getAlias(userKey, displayName);
       const streamDuration = Math.floor((Date.now() - (this.streamMonitor.streamStartTime || Date.now())) / (1000 * 60));
       let streamContext = `Hora actual: ${new Date().toLocaleTimeString('es-ES')}. Stream activo por ${streamDuration} minutos.`;
       if (this.streamMonitor.currentGame) streamContext += ` Categoría: ${this.streamMonitor.currentGame}.`;
 
-      const recentChat = this.recentChat.getRecentContext(userKey);
+      const recentChat = this.recentChat.getRecentContext(userKey, this.config.twitch.username);
       const userSummary = this.userMemory.getUserSummary(userKey);
       const userProfile = this.userContextStore.getContextSnapshot(userKey);
 
-      // Thread history
-      const threadHistory = this.conversationThreads.getThread(threadId, 6);
-      const threadContext = threadHistory
-        .filter(m => m.timestamp > Date.now() - 10 * 60 * 1000)
-        .map(m => `${m.role === 'user' ? alias : 'Tú'}: ${m.content}`)
-        .join('; ');
-
-      // Get thread-based conversation history as separate messages
-      const conversationHistory = threadHistory
+      // Thread-based conversation history as separate API messages (no text duplicate)
+      const conversationHistory = this.conversationThreads.getThread(threadId, 6)
         .filter(m => m.timestamp > Date.now() - 10 * 60 * 1000)
         .map(m => ({ role: m.role, content: m.content }));
 
@@ -585,7 +576,7 @@ export class Bot {
       const chatMessages = this.ai.buildChatMessages({
         userKey, displayName, message, mentionContext,
         streamContext, recentChat, userSummary, userProfile,
-        threadHistory: threadContext, conversationHistory,
+        conversationHistory,
         ...(isVickyThread && { personaOverride: this.config.resources.vicky })
       });
 
@@ -604,6 +595,7 @@ export class Bot {
       const outMessage = isVickyThread ? `✅Vickiña: ${finalMessage}` : finalMessage;
       await this.chat.sendMessage(outMessage, msg);
 
+      this.conversationThreads.addMessage(threadId, 'user', message, timestamp);
       this.conversationThreads.addMessage(threadId, 'assistant', finalMessage, Date.now());
       this.ai._recordResponse(userKey);
       log('debug', `Replied to ${displayName} via Groq.`);
