@@ -7,6 +7,8 @@ export class TriviaManager {
         this.groqConfig = groqConfig;
         this.activeTrivia = null;
         this.triviaTimer = null;
+        this.recentQuestions = []; // Track recent questions to avoid repeats
+        this.maxRecentQuestions = 30;
     }
 
     /**
@@ -33,16 +35,41 @@ export class TriviaManager {
             ];
             subtopic = subtopics[Math.floor(Math.random() * subtopics.length)];
         }
-        const seed = Math.floor(Math.random() * 99999);
+        // Build list of recent questions for this topic to avoid repeats
+        const recentForTopic = this.recentQuestions
+            .filter(q => q.subtopic.toLowerCase() === subtopic.toLowerCase())
+            .map(q => q.question);
+        const allRecent = this.recentQuestions.map(q => q.question);
 
-        const prompt = `Genera UNA pregunta de trivia ORIGINAL en español (id:${seed}).
+        // Pick a random angle to approach the topic from
+        const angles = [
+            'un dato histórico poco conocido', 'una curiosidad científica', 'un récord o estadística',
+            'un origen etimológico o cultural', 'una conexión inesperada con otro tema',
+            'un error común o mito popular', 'una persona poco conocida relacionada',
+            'un evento reciente o moderno', 'un aspecto técnico o de detalle',
+            'una anécdota divertida o absurda', 'algo que casi nadie sabe',
+            'una pregunta trampa con opciones engañosas', 'un dato geográfico o regional'
+        ];
+        const angle = angles[Math.floor(Math.random() * angles.length)];
+
+        let avoidSection = '';
+        if (recentForTopic.length > 0) {
+            avoidSection = `\n\nPREGUNTAS YA HECHAS SOBRE ESTE TEMA (NO las repitas ni hagas variaciones de estas):\n${recentForTopic.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
+        } else if (allRecent.length > 0) {
+            const sample = allRecent.slice(-10);
+            avoidSection = `\n\nPREGUNTAS RECIENTES (evita temas similares):\n${sample.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
+        }
+
+        const prompt = `Genera UNA pregunta de trivia ORIGINAL en español.
 Categoría: "${category}". Subtema sugerido: "${subtopic}".
+Enfoque: ${angle}.
 
 REQUISITOS:
 - Pregunta sorprendente, poco común y específica (no la primera que se te ocurra)
 - 4 opciones múltiples (a, b, c, d) plausibles pero con una sola correcta
 - Nivel de dificultad: medio-alto
 - NO uses preguntas genéricas ni las más famosas del tema
+- Sé CREATIVO: busca un ángulo inesperado o un dato oscuro${avoidSection}
 
 Responde en JSON:
 {
@@ -60,9 +87,9 @@ Responde en JSON:
         const chatMessages = [
             {
                 role: "system",
-                content: `Eres un creador de preguntas de trivia entretenidas, creativas y variadas.
-Categoría: ${category}. Subtema: ${subtopic}.
-Cada pregunta debe ser diferente e inesperada. Responde SOLO con JSON válido, sin explicaciones adicionales.`
+                content: `Eres un creador de preguntas de trivia entretenidas, creativas y variadas. NUNCA repitas una pregunta.
+Categoría: ${category}. Subtema: ${subtopic}. Enfoque: ${angle}.
+Cada pregunta debe ser diferente, inesperada y desde un ángulo único. Responde SOLO con JSON válido, sin explicaciones adicionales.`
             },
             { role: "user", content: prompt }
         ];
@@ -99,6 +126,12 @@ Cada pregunta debe ser diferente e inesperada. Responde SOLO con JSON válido, s
                 endTime: Date.now() + durationMs,
                 durationMs
             };
+
+            // Track this question to avoid repeats
+            this.recentQuestions.push({ subtopic, question: triviaData.question });
+            if (this.recentQuestions.length > this.maxRecentQuestions) {
+                this.recentQuestions.shift();
+            }
 
             log("debug", `Trivia started: "${triviaData.question}"`);
 
