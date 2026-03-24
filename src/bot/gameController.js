@@ -42,8 +42,9 @@ export class GameController extends EventEmitter {
       this.triviaManager.recordAnswer(userKey, message.slice(1));
       return true;
     }
-    if (lower === '!trivia') {
-      this._handleTrivia(userKey, displayName);
+    if (lower.startsWith('!trivia')) {
+      const topic = message.slice('!trivia'.length).trim() || null;
+      this._handleTrivia(userKey, displayName, topic);
       return true;
     }
 
@@ -110,9 +111,9 @@ export class GameController extends EventEmitter {
     this._sendLong(text);
   }
 
-  async _handleTrivia(userKey, displayName) {
+  async _handleTrivia(userKey, displayName, topic) {
     if (this.triviaManager.isActive()) { this._send('❌ Ya hay una trivia activa. ¡Responde con !a, !b, !c o !d!'); return; }
-    const result = await this.triviaManager.startTrivia('general', 30000, this.generateGameContent);
+    const result = await this.triviaManager.startTrivia('general', 30000, this.generateGameContent, topic);
     if (!result) { this._send('❌ No pude generar la pregunta. Intenta más tarde.'); return; }
     this.metrics?.increment('gamesPlayed');
     this._send(`🧠 TRIVIA: ${result.question}`);

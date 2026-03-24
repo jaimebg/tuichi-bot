@@ -16,22 +16,27 @@ export class TriviaManager {
      * @param {Function} fetchGroqResponse - Function to call Groq API
      * @returns {Promise<object|null>} - Trivia state or null if failed
      */
-    async startTrivia(category = 'general', durationMs = 30000, fetchGroqResponse) {
+    async startTrivia(category = 'general', durationMs = 30000, fetchGroqResponse, customTopic = null) {
         if (this.activeTrivia) {
             return null; // Trivia already active
         }
 
-        const subtopics = [
-            'historia antigua', 'ciencia y tecnología', 'videojuegos clásicos', 'anime y manga',
-            'música pop', 'cine y series', 'deportes', 'mitología', 'geografía', 'gastronomía',
-            'literatura', 'arte', 'astronomía', 'biología', 'matemáticas curiosas', 'récords mundiales',
-            'cultura pop de los 90', 'inventos históricos', 'animales raros', 'idiomas del mundo'
-        ];
-        const randomSubtopic = subtopics[Math.floor(Math.random() * subtopics.length)];
+        let subtopic;
+        if (customTopic) {
+            subtopic = customTopic;
+        } else {
+            const subtopics = [
+                'historia antigua', 'ciencia y tecnología', 'videojuegos clásicos', 'anime y manga',
+                'música pop', 'cine y series', 'deportes', 'mitología', 'geografía', 'gastronomía',
+                'literatura', 'arte', 'astronomía', 'biología', 'matemáticas curiosas', 'récords mundiales',
+                'cultura pop de los 90', 'inventos históricos', 'animales raros', 'idiomas del mundo'
+            ];
+            subtopic = subtopics[Math.floor(Math.random() * subtopics.length)];
+        }
         const seed = Math.floor(Math.random() * 99999);
 
         const prompt = `Genera UNA pregunta de trivia ORIGINAL en español (id:${seed}).
-Categoría: "${category}". Subtema sugerido: "${randomSubtopic}".
+Categoría: "${category}". Subtema sugerido: "${subtopic}".
 
 REQUISITOS:
 - Pregunta sorprendente, poco común y específica (no la primera que se te ocurra)
@@ -56,7 +61,7 @@ Responde en JSON:
             {
                 role: "system",
                 content: `Eres un creador de preguntas de trivia entretenidas, creativas y variadas.
-Categoría: ${category}. Subtema: ${randomSubtopic}.
+Categoría: ${category}. Subtema: ${subtopic}.
 Cada pregunta debe ser diferente e inesperada. Responde SOLO con JSON válido, sin explicaciones adicionales.`
             },
             { role: "user", content: prompt }
