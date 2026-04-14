@@ -35,6 +35,19 @@ export class MessageLogger {
 
     cleanupOldUsers() {
         this.lastCleanup = Date.now();
+        // Cap tracked users to prevent unbounded growth
+        if (this.userMessageCount.size > 500) {
+            const sorted = [...this.userMessageCount.entries()]
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 250);
+            this.userMessageCount = new Map(sorted);
+            // Prune display names to match
+            for (const key of this.userDisplayName.keys()) {
+                if (!this.userMessageCount.has(key)) {
+                    this.userDisplayName.delete(key);
+                }
+            }
+        }
     }
 
     getStats() {

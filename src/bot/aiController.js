@@ -56,6 +56,14 @@ export class AiController {
     const now = Date.now();
     this.userLastResponseAt.set(userKey, now);
     this.lastGlobalResponseAt = now;
+
+    // Prevent unbounded growth — prune entries older than 1 hour
+    if (this.userLastResponseAt.size > 200) {
+      const cutoff = now - 3600_000;
+      for (const [key, ts] of this.userLastResponseAt) {
+        if (ts < cutoff) this.userLastResponseAt.delete(key);
+      }
+    }
   }
 
   _getAlias(userKey, displayName) {

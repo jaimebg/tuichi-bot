@@ -79,6 +79,23 @@ export class InactivityTracker {
         };
     }
 
+    /** Remove users inactive for more than 2x the threshold (they're long gone). */
+    cleanup() {
+        const cutoff = Date.now() - (this.inactivityThresholdMs * 2);
+        for (const [userKey, data] of this.userLastActivity) {
+            if (data.timestamp < cutoff) {
+                this.userLastActivity.delete(userKey);
+            }
+        }
+        // Prune shame records older than 2 hours
+        const shameCutoff = Date.now() - 2 * 60 * 60 * 1000;
+        for (const [userKey, ts] of this.shameTracker) {
+            if (ts < shameCutoff) {
+                this.shameTracker.delete(userKey);
+            }
+        }
+    }
+
     shouldCheck() {
         const now = Date.now();
         if (now - this.lastCheckTime >= this.checkIntervalMs) {

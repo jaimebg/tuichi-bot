@@ -682,6 +682,7 @@ export class Bot {
   async _saveAll() {
     this.userMemory.cleanup();
     this.conversationThreads.cleanup();
+    this.inactivityTracker.cleanup();
     for (const threadId of this.vickyThreads) {
       if (!this.conversationThreads.threads.has(threadId)) this.vickyThreads.delete(threadId);
     }
@@ -691,6 +692,8 @@ export class Bot {
     await this.userContextStore.flush();
     this.db.state.set('greetingsEnabled', String(this.greetingsEnabled));
     this.db.state.set('greetedUsers', JSON.stringify(Object.fromEntries(this.greetedUsers)));
+    // Clear greetedUsers from memory after persisting (they're only needed for session restore)
+    this.greetedUsers.clear();
     log('debug', 'Data saved');
   }
   _loadBotState() {
@@ -720,7 +723,14 @@ export class Bot {
       log('error', `Heap usage critical: ${heapMB}MB — initiating graceful restart`);
       this._saveAll().then(() => process.exit(1));
     } else if (heapMB > 400) {
-      log('warn', `Heap usage high: ${heapMB}MB`);
+      log('warn', `Heap usage high: ${heapMB}MB | ` +
+        `contexts:${this.userContextStore.contexts.size} ` +
+        `memories:${this.userMemory.memories.size} ` +
+        `inactivity:${this.inactivityTracker.userLastActivity.size} ` +
+        `cooldowns:${this.ai.userLastResponseAt.size} ` +
+        `msgLogger:${this.messageLogger.userMessageCount.size} ` +
+        `greetedUsers:${this.greetedUsers.size}`
+      );
     }
   }
 

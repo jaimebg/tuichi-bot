@@ -1,9 +1,10 @@
 import { log } from '../logger.js';
 
 export class UserContextStore {
-    constructor(db, maxRecentMessages = 12) {
+    constructor(db, maxRecentMessages = 12, maxCachedContexts = 200) {
         this.db = db;
         this.maxRecentMessages = maxRecentMessages;
+        this.maxCachedContexts = maxCachedContexts;
         this.contexts = new Map();
         this.dirtyUsers = new Set();
         this.loadExistingContexts();
@@ -188,6 +189,21 @@ export class UserContextStore {
             });
         }
         this.dirtyUsers.clear();
+        this._evictStaleContexts();
+    }
+
+    /** Remove oldest contexts when cache exceeds limit (LRU by lastSeen). */
+    _evictStaleContexts() {
+        if (this.contexts.size <= this.maxCachedContexts) return;
+        const sorted = [...this.contexts.entries()]
+            .sort((a, b) => (a[1].lastSeen || 0) - (b[1].lastSeen || 0));
+        const toRemove = sorted.slice(0, this.contexts.size - this.maxCachedContexts);
+        for (const [key] of toRemove) {
+            this.contexts.delete(key);
+        }
+        if (toRemove.length > 0) {
+            log('info', `Evicted ${toRemove.length} stale user contexts from cache (${this.contexts.size} remaining)`);
+        }
     }
 
     getContextSnapshot(userKey) {
