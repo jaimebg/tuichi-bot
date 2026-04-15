@@ -210,7 +210,8 @@ export class AiController {
       } catch (err) {
         errors.push({ model, err });
         this.metrics?.increment('aiErrors');
-        log('warn', `Groq model ${model} failed: ${err.message}`);
+        const detail = err.detail ? ` — ${String(err.detail).slice(0, 500)}` : '';
+        log('warn', `Groq model ${model} failed: ${err.message}${detail}`);
       }
     }
     this._circuitFailure();
