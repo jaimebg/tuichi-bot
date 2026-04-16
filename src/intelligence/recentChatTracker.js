@@ -53,7 +53,7 @@ export class RecentChatTracker {
         const rows = this.db.chat.getRecent(this.limit);
         this.messages = rows.reverse().map(r => ({
             userKey: r.user_id, displayName: r.display_name,
-            message: r.message, timestamp: new Date(r.timestamp).getTime()
+            message: r.message, timestamp: new Date(r.timestamp + 'Z').getTime()
         }));
         this.cleanOldMessages();
         log('info', `Loaded ${this.messages.length} recent chat messages from DB`);

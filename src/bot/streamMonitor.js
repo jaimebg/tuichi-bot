@@ -20,6 +20,7 @@ export class StreamMonitor extends EventEmitter {
     this.streamStartTime = null;
     this._timer = null;
     this._eventSubConnected = false;
+    this._eventSubLiveAt = 0; // timestamp of last EventSub live confirmation
   }
 
   start() {
@@ -38,16 +39,18 @@ export class StreamMonitor extends EventEmitter {
   handleLive(event) {
     if (this.isOnline) return; // already known
     this.isOnline = true;
+    this._eventSubLiveAt = Date.now();
     this.streamStartTime = event.started_at ? new Date(event.started_at).getTime() : Date.now();
     log('info', 'Stream went live (via EventSub)');
-    // Fetch full info for title/game since EventSub stream.online doesn't include them
-    this.check();
+    // Fetch title/game from API then emit 'live'
+    this._fetchAndEmitLive();
   }
 
   /** Called by EventSubClient when stream.offline fires */
   handleOffline() {
     if (!this.isOnline) return; // already known
     this.isOnline = false;
+    this._eventSubLiveAt = 0;
     this.currentGame = null;
     this.currentTitle = null;
     this.streamStartTime = null;
@@ -71,6 +74,25 @@ export class StreamMonitor extends EventEmitter {
     this._timer = setInterval(() => this.check(), interval);
   }
 
+  /**
+   * Fetch stream info from API and emit 'live'. Used by handleLive() so EventSub
+   * always triggers the live event even if the API lags behind.
+   */
+  async _fetchAndEmitLive() {
+    try {
+      const info = await this.twitchApi.getStreamByUserName(this.channel);
+      if (info) {
+        this.currentGame = info.gameName;
+        this.currentTitle = info.title;
+      }
+    } catch (err) {
+      log('warn', `Stream info fetch after EventSub live failed: ${err.message}`);
+    }
+    // Always emit — EventSub is authoritative for online/offline state
+    this.emit('live', { title: this.currentTitle || '', game: this.currentGame || '' });
+  }
+
+  /** Poll-based check. Only emits events when EventSub hasn't recently confirmed state. */
   async check() {
     try {
       const info = await this.twitchApi.getStreamByUserName(this.channel);
@@ -88,6 +110,11 @@ export class StreamMonitor extends EventEmitter {
           this.emit('categoryChange', { previous: previousGame, current: this.currentGame, title: this.currentTitle });
         }
       } else {
+        // Guard: don't contradict EventSub within 60s (API may lag behind)
+        if (this._eventSubLiveAt && Date.now() - this._eventSubLiveAt < 60_000) {
+          log('debug', 'API returned null but EventSub recently confirmed live, ignoring');
+          return;
+        }
         this.isOnline = false;
         if (wasOnline) this.emit('offline');
       }

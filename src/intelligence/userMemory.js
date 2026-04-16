@@ -248,13 +248,13 @@ export class UserMemory {
             userData.personality = JSON.parse(row.personality_traits || '[]');
             userData.conversationThemes = JSON.parse(row.conversation_themes || '[]');
             userData.metadata.displayName = row.display_name;
-            userData.firstSeen = new Date(row.first_seen).getTime();
+            userData.firstSeen = new Date(row.first_seen + 'Z').getTime();
             const eng = userData.engagementPattern;
             eng.totalMessages = row.message_count;
             eng.averageLength = row.avg_message_length;
             eng.commonWords = new Map(Object.entries(JSON.parse(row.top_words || '{}')));
             eng.activeHours = new Set(JSON.parse(row.active_hours || '[]'));
-            eng.lastSeen = new Date(row.last_seen).getTime();
+            eng.lastSeen = new Date(row.last_seen + 'Z').getTime();
             this.memories.set(row.user_id, userData);
         }
         log('info', `Loaded ${this.memories.size} user memories from DB`);

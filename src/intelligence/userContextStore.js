@@ -16,8 +16,8 @@ export class UserContextStore {
             this.contexts.set(row.user_id, {
                 userKey: row.user_id,
                 displayName: row.display_name,
-                firstSeen: row.first_seen ? new Date(row.first_seen).getTime() : null,
-                lastSeen: row.last_seen ? new Date(row.last_seen).getTime() : null,
+                firstSeen: row.first_seen ? new Date(row.first_seen + 'Z').getTime() : null,
+                lastSeen: row.last_seen ? new Date(row.last_seen + 'Z').getTime() : null,
                 messageCount: row.message_count,
                 averageLength: row.avg_message_length,
                 activeHours: JSON.parse(row.active_hours || '[]'),
