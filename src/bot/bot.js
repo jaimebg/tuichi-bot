@@ -151,23 +151,33 @@ export class Bot {
     });
 
     // Game controller -> chat
-    this.gameController.on('send', (text) => this.chat.sendMessage(text));
-    this.gameController.on('sendLong', (text) => this.chat.sendLongMessage(text));
+    this.gameController.on('send', (text) => this.chat.sendMessage(text).catch(err =>
+      log('warn', `Failed to send game message: ${err.message}`)
+    ));
+    this.gameController.on('sendLong', (text) => this.chat.sendLongMessage(text).catch(err =>
+      log('warn', `Failed to send long game message: ${err.message}`)
+    ));
 
     // Stream monitor -> chat
     this.streamMonitor.on('live', async (info) => {
-      this.messageLogger.reset();
-      const msg = await this._generateStreamStartMessage(info.title, info.game);
-      await this.chat.sendMessage(msg);
+      try {
+        this.messageLogger.reset();
+        const msg = await this._generateStreamStartMessage(info.title, info.game);
+        await this.chat.sendMessage(msg);
+      } catch (err) { log('warn', `Failed to handle stream live event: ${err.message}`); }
     });
     this.streamMonitor.on('offline', async () => {
-      await this.chat.sendMessage('El stream se ha desconectado. Venga guapa.');
-      const topMsg = this._getTopUsersMessage(10);
-      if (topMsg) await this.chat.sendMessage(topMsg);
+      try {
+        await this.chat.sendMessage('El stream se ha desconectado. Venga guapa.');
+        const topMsg = this._getTopUsersMessage(10);
+        if (topMsg) await this.chat.sendMessage(topMsg);
+      } catch (err) { log('warn', `Failed to handle stream offline event: ${err.message}`); }
     });
     this.streamMonitor.on('categoryChange', async (info) => {
-      const msg = await this._generateCategoryChangeMessage(info.previous, info.current);
-      await this.chat.sendMessage(msg);
+      try {
+        const msg = await this._generateCategoryChangeMessage(info.previous, info.current);
+        await this.chat.sendMessage(msg);
+      } catch (err) { log('warn', `Failed to handle category change event: ${err.message}`); }
     });
   }
 
@@ -254,7 +264,7 @@ export class Bot {
         '!survive - Battle royale de chat | ' +
         '!vicky [mensaje] - Habla con Vicky Perez | ' +
         `También puedes mencionarme con @${this.config.twitch.username} para hablar conmigo guapa xdd`
-      );
+      ).catch(err => log('warn', `Failed to send ayuda: ${err.message}`));
       return;
     }
 
@@ -275,14 +285,15 @@ export class Bot {
         `Chat: ${chatOk ? '✅' : '❌'} | DB: ${dbOk ? '✅' : '❌'} | ` +
         `AI: ${circuit} | Mem: ${mem}MB | ` +
         `Msgs: ${snap.counters.messagesReceived}↓ ${snap.counters.messagesSent}↑`
-      );
+      ).catch(err => log('warn', `Failed to send status: ${err.message}`));
       return;
     }
 
     // Greetings toggle (owner only)
     if (message === '!saluditos' && userKey === 'jaimevarecto') {
       this.greetingsEnabled = !this.greetingsEnabled;
-      this.chat.sendMessage(`Saludos ${this.greetingsEnabled ? 'activados' : 'desactivados'}`);
+      this.chat.sendMessage(`Saludos ${this.greetingsEnabled ? 'activados' : 'desactivados'}`)
+        .catch(err => log('warn', `Failed to send saluditos toggle: ${err.message}`));
       return;
     }
 

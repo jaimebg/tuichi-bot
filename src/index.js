@@ -9,7 +9,7 @@ process.on('uncaughtException', (err) => {
 });
 process.on('unhandledRejection', (reason) => {
   log('error', `Unhandled rejection: ${reason}`);
-  process.exit(1);
+  // Do not exit — log and continue. uncaughtException still kills the process.
 });
 
 const config = buildConfig();
