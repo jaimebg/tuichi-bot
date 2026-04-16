@@ -83,7 +83,7 @@ export function buildConfig(env = process.env) {
       apiKey: vars.GROQ_API_KEY,
       baseUrl: 'https://api.groq.com/openai/v1',
       models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
-      temperature: 0.7, timeoutMs: 20000, maxTokens: 500
+      temperature: 0.7, timeoutMs: 20000, maxTokens: 1024
     }),
     ai: Object.freeze({
       maxChars: 500, historyLimit: 5, userCooldownMs: 1000, globalCooldownMs: 1000
