@@ -2,12 +2,14 @@ import WebSocket from 'ws';
 import { log } from '../logger.js';
 
 export class EventSubClient {
-  constructor({ twitchApi, channelLogin, reconnectBaseMs, maxReconnectMs, keepaliveGraceMs }) {
+  constructor({ twitchApi, channelLogin, reconnectBaseMs, maxReconnectMs, keepaliveGraceMs, onConnectionChange }) {
     this.twitchApi = twitchApi;
     this.channelLogin = channelLogin;
     this.reconnectBaseMs = Number.isFinite(reconnectBaseMs) ? Number(reconnectBaseMs) : 5000;
     this.maxReconnectMs = Number.isFinite(maxReconnectMs) ? Number(maxReconnectMs) : 60000;
     this.keepaliveGraceMs = Number.isFinite(keepaliveGraceMs) ? Number(keepaliveGraceMs) : 15000;
+    this.onConnectionChange = typeof onConnectionChange === 'function' ? onConnectionChange : null;
+    this._connected = false;
 
     this._subscriptions = new Map();
     this.socketUrl = 'wss://eventsub.wss.twitch.tv/ws';
@@ -30,6 +32,16 @@ export class EventSubClient {
 
   isConnected() { return this.started && this.ws?.readyState === WebSocket.OPEN; }
 
+  /** Notify a listener when EventSub starts/stops delivering events (deduped). */
+  _setConnected(connected) {
+    if (this._connected === connected) return;
+    this._connected = connected;
+    if (this.onConnectionChange) {
+      try { this.onConnectionChange(connected); }
+      catch (err) { log('warn', `EventSub onConnectionChange handler failed: ${err.message}`); }
+    }
+  }
+
   async start() {
     if (this.started) return;
     if (!this.twitchApi) { log('warn', 'EventSubClient requires a TwitchApi instance.'); return; }
@@ -47,6 +59,7 @@ export class EventSubClient {
 
   async stop() {
     this.started = false;
+    this._setConnected(false);
     this.sessionId = null;
     this._subscriptionsCreated = false;
     this._pendingSubscriptions = false;
@@ -88,6 +101,7 @@ export class EventSubClient {
   _handleSocketClose(code) {
     this._clearKeepaliveTimer();
     this.ws = null;
+    this._setConnected(false);
     if (!this.started) return;
 
     // Rate-limited close codes
@@ -268,5 +282,6 @@ export class EventSubClient {
     }
     this._subscriptionsCreated = allOk;
     this._pendingSubscriptions = false;
+    if (allOk) this._setConnected(true);
   }
 }

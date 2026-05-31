@@ -5,7 +5,7 @@ A Node.js Twitch chat bot for the `jaimevarecto` channel, featuring AI-powered i
 ## Features
 
 ### Core Functionality
-- **Smart Greetings**: Welcomes new viewers with customizable messages, skipping those who chat first
+- **Smart Greetings & Goodbyes**: Welcomes viewers when they appear in chat and bids farewell when they leave, using the Helix Get Chatters API (reliable presence, unlike Twitch's batched IRC JOIN/PART). Requires the broadcaster token with `moderator:read:chatters` (see Credentials).
 - **AI Chat Responses**: Responds to @mentions and replies using Groq AI with user memory and context
 - **Interactive Adventures** (`!aventura [theme] [difficulty]`): Story-driven adventures with dynamic difficulty, death probability, and unpredictable endings
 - **Interactive Polls** (`!poll`): Real-time chat polls; viewers vote with numbered options
@@ -64,6 +64,11 @@ MEDIA_OVERLAY_ENABLED=true
 MEDIA_OVERLAY_PORT=8910
 HEALTH_PORT=9090
 HEALTH_API_KEY=your-secret-api-key
+
+# Broadcaster token (channel owner) — enables channel points, stream EventSub,
+# and greetings/goodbyes via Get Chatters. Without it, those features are disabled.
+TWITCH_BROADCASTER_TOKEN=broadcaster_access_token
+TWITCH_BROADCASTER_REFRESH_TOKEN=broadcaster_refresh_token
 ```
 
 ### Obtaining Credentials
@@ -71,15 +76,21 @@ HEALTH_API_KEY=your-secret-api-key
 **Twitch API Credentials** (`TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_API_TOKEN`, `TWITCH_REFRESH_TOKEN`)
 1. Create an application at https://dev.twitch.tv/console/apps (redirect URL: `http://localhost:3000`)
 2. Use the OAuth Authorization Code flow to obtain access and refresh tokens
-3. Required scopes: `chat:read chat:edit channel:read:redemptions channel:read:subscriptions moderator:read:chatters`
+3. **Bot account token** (`TWITCH_API_TOKEN`/`TWITCH_REFRESH_TOKEN`) — scopes: `chat:read chat:edit`
 4. The bot auto-refreshes the access token using the refresh token
+
+**Broadcaster Token** (`TWITCH_BROADCASTER_TOKEN`/`TWITCH_BROADCASTER_REFRESH_TOKEN`) — authorize this on the **channel owner's** account
+- Required scopes: `channel:read:redemptions channel:read:subscriptions moderator:read:chatters`
+- `moderator:read:chatters` powers presence (greetings/goodbyes via Get Chatters). The broadcaster is implicitly a moderator of their own channel.
+- ⚠️ If you previously authorized this token **without** `moderator:read:chatters`, you must re-authorize it — otherwise the bot logs `ChatterPresence disabled: Get Chatters unauthorized` and greetings/goodbyes stay off (everything else keeps working).
 
 **Groq API Key** (`GROQ_API_KEY`)
 - Create a key from the Groq console: https://console.groq.com/keys
 
 ### Customize bot behavior
 
-- `resources/greetings.txt` -- Greeting messages for new viewers (`{user}` placeholder supported)
+- `resources/greetings.txt` -- Greeting messages for arriving viewers (`{user}` placeholder supported)
+- `resources/goodbyes.txt` -- Farewell messages for departing viewers (`{user}` placeholder supported)
 - `resources/persona.txt` -- AI personality and behavior guidelines
 - `resources/lore.txt` -- Story elements for adventures
 - `resources/aliases.txt` -- Username-to-alias mappings (`username:Alias Name`)
@@ -150,6 +161,8 @@ src/
     mediaOverlayServer.js   SSE server for browser overlay
     overlay/                Static HTML/CSS/JS for OBS browser source
   bot/
+    chatterPresence.js      Polls Helix Get Chatters; emits join/leave for greetings/goodbyes
+    streamMonitor.js        Stream online/offline + category tracking (EventSub + polling)
     scheduler.js            Centralized periodic task runner
     metricsCollector.js     In-memory counters and error ring buffer
     healthServer.js         HTTP health/metrics/REST API server
@@ -226,7 +239,9 @@ SQLite database is backed up automatically:
 - **Token refresh errors** -- Verify `TWITCH_REFRESH_TOKEN`, `TWITCH_CLIENT_ID`, and `TWITCH_CLIENT_SECRET` are correct.
 - **EventSub 429 errors** -- Rate limiting from rapid reconnections. The bot backs off automatically; wait and it will reconnect.
 - **Circuit breaker open** -- Groq API had 3+ consecutive failures. The bot auto-recovers after 1-5 min cooldown. Check `/metrics` for details.
-- **Health check returns 503** -- Chat connection or database is unhealthy. Check `journalctl -u tuichi-bot` for details.
+- **Health check returns 503** -- Chat connection or database is unhealthy. Check `journalctl -u tuichi-bot` for details. (Note: a 503 no longer kills the process — the systemd watchdog is pinged on event-loop liveness, not chat activity, so a quiet chat won't trigger restarts.)
+- **No greetings or goodbyes** -- Presence needs the broadcaster token with `moderator:read:chatters`. Look for `ChatterPresence disabled: Get Chatters unauthorized` in the logs; if present, re-authorize `TWITCH_BROADCASTER_TOKEN` with that scope. If the token is absent entirely, you'll see `Presence tracking disabled` at startup.
+- **Bot restarts during quiet streams** -- Fixed: the watchdog ping was previously gated on recent chat activity, so a >10 min lull starved the systemd watchdog (`WatchdogSec=120`) and forced a restart. Confirm the cause in old logs with `journalctl -u tuichi-bot | grep -i watchdog`.
 
 ## Requirements
 

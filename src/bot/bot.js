@@ -5,6 +5,7 @@ import { ChatHandler } from './chatHandler.js';
 import { AiController } from './aiController.js';
 import { GameController } from './gameController.js';
 import { StreamMonitor } from './streamMonitor.js';
+import { ChatterPresence } from './chatterPresence.js';
 import { UserMemory } from '../intelligence/userMemory.js';
 import { UserContextStore } from '../intelligence/userContextStore.js';
 import { RecentChatTracker } from '../intelligence/recentChatTracker.js';
@@ -90,7 +91,9 @@ export class Bot {
       twitchApi: this.twitchApi, channelLogin: config.twitch.channel,
       reconnectBaseMs: config.channelPoints.reconnectBaseMs,
       maxReconnectMs: config.channelPoints.maxReconnectMs,
-      keepaliveGraceMs: config.channelPoints.keepaliveGraceMs
+      keepaliveGraceMs: config.channelPoints.keepaliveGraceMs,
+      // Let StreamMonitor widen its poll interval while EventSub is delivering events.
+      onConnectionChange: (connected) => this.streamMonitor.setEventSubConnected(connected)
     }) : null;
 
     if (this.eventSubClient) {
@@ -113,15 +116,24 @@ export class Bot {
       );
     }
 
+    // Chatter presence (Helix Get Chatters) — authoritative source for who is in
+    // chat, driving greetings/goodbyes and the present-users list. Requires the
+    // broadcaster token (with moderator:read:chatters); disabled gracefully if absent.
+    this.chatterPresence = config.twitch.broadcasterToken ? new ChatterPresence({
+      twitchApi: this.twitchApi,
+      channel: config.twitch.channel,
+      botUsername: config.twitch.username,
+      ignoredUsers: IGNORED_USERS,
+      confirmLeaveCycles: config.presence.confirmLeaveCycles,
+      recentMessageHoldMs: config.presence.recentMessageHoldMs
+    }) : null;
+    if (!this.chatterPresence) {
+      log('warn', 'Presence tracking disabled: set TWITCH_BROADCASTER_TOKEN (with moderator:read:chatters) to enable greetings/goodbyes.');
+    }
+
     // Session state
-    this.presentUsers = new Set();
-    this.userHasChatted = new Set();
-    this.silentUsers = new Set();
-    this.existingUsers = new Set();
-    this.greetedUsers = new Map();
+    this.greetedUsers = new Map();   // userKey -> last-greeted timestamp (re-greet cooldown)
     this.greetingsEnabled = true;
-    this.startupIgnoreUntil = 0;
-    this.initialNamesHandled = false;
 
     // Production modules
     this.metrics = new MetricsCollector();
@@ -138,17 +150,24 @@ export class Bot {
   }
 
   _wireEvents() {
-    // Chat events -> bot routing
-    this.chat.on('message', (data) => this._handleMessage(data));
-    this.chat.on('join', ({ userKey, username }) => this._handleJoin(userKey, username));
-    this.chat.on('part', ({ userKey, username }) => this._handlePart(userKey, username));
-    this.chat.on('connected', () => {
-      this.existingUsers.clear();
-      this.presentUsers.clear();
-      this.userHasChatted.clear();
-      this.startupIgnoreUntil = Date.now() + 5000;
-      this.initialNamesHandled = false;
+    // Chat events -> bot routing. Guard so a single bad message can't crash the process.
+    this.chat.on('message', (data) => {
+      try { this._handleMessage(data); }
+      catch (err) {
+        log('error', `Error handling message from ${data?.displayName || 'unknown'}: ${err.message}`);
+        log('debug', err.stack);
+      }
     });
+    this.chat.on('connected', () => {
+      // Re-seed presence on reconnect so we don't mass-greet the existing audience.
+      this.chatterPresence?.reset();
+    });
+
+    // Presence (Helix Get Chatters) -> greetings + goodbyes
+    if (this.chatterPresence) {
+      this.chatterPresence.on('join', ({ userKey, username }) => this._handlePresenceJoin(userKey, username));
+      this.chatterPresence.on('leave', ({ userKey, username }) => this._handlePresenceLeave(userKey, username));
+    }
 
     // Game controller -> chat
     this.gameController.on('send', (text) => this.chat.sendMessage(text).catch(err =>
@@ -211,16 +230,21 @@ export class Bot {
     // Register scheduled tasks
     this.scheduler.register('auto-save', () => this._saveAll(), 5 * 60_000);
     this.scheduler.register('inactivity-check', () => this._checkInactivity(), 120_000);
-    this.scheduler.register('watchdog-notify', () => {
-      if (this.healthServer.isSystemHealthy()) this.watchdog.notifyWatchdog();
-    }, 30_000);
+    // Ping the systemd watchdog unconditionally: this callback firing proves the
+    // event loop is alive, which is all the watchdog is meant to detect. Chat
+    // silence is NOT a liveness failure and must never trigger a restart.
+    this.scheduler.register('watchdog-notify', () => this.watchdog.notifyWatchdog(), 30_000);
     this.scheduler.register('chat-health-check', () => {
       if (!this.chat.isHealthy(this.streamMonitor.isOnline)) {
-        log('warn', 'Chat connection appears unhealthy (zombie detected)');
+        log('warn', 'Chat connection appears unhealthy (no recent messages)');
       }
     }, 60_000);
     this.scheduler.register('memory-check', () => this._checkMemory(), 5 * 60_000);
     this.scheduler.register('db-backup', () => this._backupDb(), 86400_000);
+    if (this.chatterPresence) {
+      this.scheduler.register('presence-poll', () => this.chatterPresence.poll(),
+        this.config.presence.pollIntervalMs, { runImmediately: true });
+    }
 
     // Notify systemd we're ready
     await this.watchdog.notifyReady();
@@ -241,10 +265,7 @@ export class Bot {
 
   // --- Message handling ---
   _handleMessage({ userKey, displayName, message, tags, msg }) {
-    this.presentUsers.add(userKey);
-    this.userHasChatted.add(userKey);
-    this.silentUsers.delete(userKey);
-    this.existingUsers.delete(userKey);
+    this.chatterPresence?.markActive(userKey, displayName);
 
     const timestamp = Date.now();
     this.recentChat.addMessage(userKey, displayName, message, timestamp);
@@ -312,7 +333,8 @@ export class Bot {
     this._handleSingleWordEcho(message, tags);
 
     // Game commands
-    if (this.gameController.handleCommand(userKey, displayName, message, Array.from(this.presentUsers))) return;
+    const present = this.chatterPresence?.getPresentList() ?? [];
+    if (this.gameController.handleCommand(userKey, displayName, message, present)) return;
 
     // Mention/reply handling -> AI response
     this._handleMention({ userKey, displayName, message, tags, msg, timestamp });
@@ -464,60 +486,29 @@ export class Bot {
     }
   }
 
-  // --- Join handling ---
-  _handleJoin(userKey, username) {
-    if (userKey === this.config.twitch.username) return;
-    const skipGreeting = IGNORED_USERS.has(userKey);
-    this.presentUsers.add(userKey);
-
-    // During startup grace period, treat joins as existing users (replaces handleInitialNames)
-    if (!this.initialNamesHandled && Date.now() < this.startupIgnoreUntil) {
-      this.existingUsers.add(userKey);
-      return;
-    }
-    // Once grace period ends, mark it handled
-    if (!this.initialNamesHandled) {
-      this.initialNamesHandled = true;
-      log('debug', `Startup grace period ended, ${this.existingUsers.size} existing viewers tracked.`);
-    }
-
-    if (this.existingUsers.has(userKey) || skipGreeting) return;
-    this.silentUsers.add(userKey);
+  // --- Presence-driven greetings / goodbyes (Helix Get Chatters) ---
+  _handlePresenceJoin(userKey, username) {
     if (!this.greetingsEnabled) return;
-    this._scheduleGreeting(username);
+    if (userKey === this.config.twitch.username) return;
+    if (IGNORED_USERS.has(userKey)) return;
+    // Re-greet cooldown: don't greet a user we already greeted recently.
+    const lastGreeted = this.greetedUsers.get(userKey);
+    if (lastGreeted && Date.now() - lastGreeted < this.config.presence.greetCooldownMs) return;
+    this._sendGreeting(userKey, username);
   }
 
-  // --- Part handling ---
-  _handlePart(userKey, username) {
+  _handlePresenceLeave(userKey, username) {
     if (userKey === this.config.twitch.username) return;
-
-    const shouldGoodbye = this.greetingsEnabled
-      && !IGNORED_USERS.has(userKey)
-      && (this.userHasChatted.has(userKey) || this.silentUsers.has(userKey));
-
-    if (shouldGoodbye) {
-      this._sendGoodbye(username);
-    }
-
-    this.presentUsers.delete(userKey);
-    this.userHasChatted.delete(userKey);
-    this.existingUsers.delete(userKey);
-    this.silentUsers.delete(userKey);
     this.inactivityTracker.clearUser(userKey);
+    // Confirmed departure: forget the greeting so a genuine rejoin is greeted again
+    // immediately (no cooldown). The cooldown only suppresses re-greets without a leave.
+    this.greetedUsers.delete(userKey);
+    if (!this.greetingsEnabled || IGNORED_USERS.has(userKey)) return;
+    this._sendGoodbye(username);
   }
 
   // --- Greeting subsystem ---
-  _scheduleGreeting(username) {
-    const userKey = username.toLowerCase();
-    if (userKey === this.config.twitch.username) return;
-    if (IGNORED_USERS.has(userKey) || this.existingUsers.has(userKey)) return;
-    if (this.userHasChatted.has(userKey)) return;
-    this.presentUsers.add(userKey);
-    this._sendGreeting(username);
-  }
-
-  _sendGreeting(username) {
-    const userKey = username.toLowerCase();
+  _sendGreeting(userKey, username) {
     const text = this._pickGreeting(username);
     this.chat.sendMessage(text).then(() => {
       this.greetedUsers.set(userKey, Date.now());
@@ -701,10 +692,12 @@ export class Bot {
     this.recentChat.save();
     this.conversationThreads.save();
     await this.userContextStore.flush();
+    // Prune greeted entries past the re-greet cooldown, then persist the rest so
+    // returning viewers aren't re-greeted across restarts. (Used by _handlePresenceJoin.)
+    const greetCutoff = Date.now() - this.config.presence.greetCooldownMs;
+    for (const [k, ts] of this.greetedUsers) if (ts < greetCutoff) this.greetedUsers.delete(k);
     this.db.state.set('greetingsEnabled', String(this.greetingsEnabled));
     this.db.state.set('greetedUsers', JSON.stringify(Object.fromEntries(this.greetedUsers)));
-    // Clear greetedUsers from memory after persisting (they're only needed for session restore)
-    this.greetedUsers.clear();
     log('debug', 'Data saved');
   }
   _loadBotState() {
@@ -730,11 +723,15 @@ export class Bot {
   _checkMemory() {
     const mem = process.memoryUsage();
     const heapMB = Math.round(mem.heapUsed / 1024 / 1024);
-    if (heapMB > 600) {
-      log('error', `Heap usage critical: ${heapMB}MB — initiating graceful restart`);
-      this._saveAll().then(() => process.exit(1));
-    } else if (heapMB > 400) {
-      log('warn', `Heap usage high: ${heapMB}MB | ` +
+    // RSS is what systemd's MemoryMax (768M) enforces, and it includes native
+    // memory (better-sqlite3, ws buffers) that heapUsed misses. Keep margin below it.
+    const rssMB = Math.round(mem.rss / 1024 / 1024);
+    if (heapMB > 600 || rssMB > 680) {
+      log('error', `Memory critical (heap ${heapMB}MB, rss ${rssMB}MB) — initiating graceful restart`);
+      this._saveAll().then(() => process.exit(1)).catch(() => process.exit(1));
+    } else if (heapMB > 400 || rssMB > 560) {
+      log('warn', `Memory high: heap ${heapMB}MB rss ${rssMB}MB | ` +
+        `present:${this.chatterPresence?.getPresentCount() ?? 0} ` +
         `contexts:${this.userContextStore.contexts.size} ` +
         `memories:${this.userMemory.memories.size} ` +
         `inactivity:${this.inactivityTracker.userLastActivity.size} ` +

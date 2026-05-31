@@ -11,7 +11,7 @@ function mockBot() {
     db: { raw: { prepare: () => ({ get: () => ({ v: 1 }) }) } },
     streamMonitor: { isOnline: true, currentGame: 'Test', currentTitle: 'Title' },
     messageLogger: { getTopUsers: () => [{ displayName: 'Alice', messageCount: 5 }] },
-    presentUsers: new Set(['alice']),
+    chatterPresence: { getPresentCount: () => 1 },
     userMemory: { memories: new Map([['alice', {}]]) }
   };
 }

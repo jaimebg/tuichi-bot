@@ -28,6 +28,7 @@ Bot
 │   ├── AdventureManager
 │   └── SurviveManager
 ├── StreamMonitor (EventEmitter: live, offline, categoryChange)
+├── ChatterPresence (EventEmitter: join, leave -- polls Helix Get Chatters; drives greetings/goodbyes/present list)
 ├── MediaOverlayServer (SSE + static file serving)
 ├── EventSubClient (EventSub WebSocket: channel points + stream events)
 ├── Scheduler (centralized periodic task runner)
@@ -49,6 +50,7 @@ Bot
 - Required vars: `TWITCH_USERNAME`, `TWITCH_CHANNEL`, `TWITCH_API_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `GROQ_API_KEY`.
 - Never hardcode credentials. Never commit `.env`.
 - Optional vars: `HEALTH_PORT` (default 9090), `HEALTH_API_KEY` (API key for protected endpoints).
+- Broadcaster token (`TWITCH_BROADCASTER_TOKEN`, `TWITCH_BROADCASTER_REFRESH_TOKEN`): channel owner's token for EventSub (channel points / stream events) and presence. Scopes: `channel:read:redemptions channel:read:subscriptions moderator:read:chatters`. Without it, EventSub and greetings/goodbyes are disabled gracefully. `getChatters` uses this token (the broadcaster is implicitly a moderator).
 
 ### Production (VPS)
 
@@ -66,7 +68,7 @@ Bot
 - **Text output**: Always normalize with `normalizeWhitespace()` and clamp with `clampResponseLength()` from `src/utils/text.js`.
 - **JSON from AI**: Use `extractJson()` from `src/utils/json.js` to parse AI responses that contain JSON.
 - **Ignored users**: `IGNORED_USERS` set in `src/twitch/constants.js` -- bot skips messages from these.
-- **Events over callbacks**: Modules communicate via EventEmitter. ChatHandler emits `message`/`join`/`part`/`connected`. GameController emits `send`/`sendLong`. StreamMonitor emits `live`/`offline`/`categoryChange`.
+- **Events over callbacks**: Modules communicate via EventEmitter. ChatHandler emits `message`/`connected` (it also emits `join`/`part`, but Twitch only delivers those for the bot's own account without the membership capability, so they are not used for presence). GameController emits `send`/`sendLong`. StreamMonitor emits `live`/`offline`/`categoryChange`. ChatterPresence emits `join`/`leave` (authoritative presence from Helix Get Chatters) — this is what drives greetings/goodbyes.
 
 ## Development
 

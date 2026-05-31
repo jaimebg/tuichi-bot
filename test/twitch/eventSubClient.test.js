@@ -71,4 +71,31 @@ describe('EventSubClient', () => {
   it('isConnected returns false before start', () => {
     assert.equal(client.isConnected(), false);
   });
+
+  it('dedupes connection-state changes passed to onConnectionChange', () => {
+    const events = [];
+    const c = new EventSubClient({
+      twitchApi: mockTwitchApi(), channelLogin: 'x',
+      onConnectionChange: (v) => events.push(v)
+    });
+    c._setConnected(true);
+    c._setConnected(true);   // no-op (already connected)
+    c._setConnected(false);
+    c._setConnected(false);  // no-op (already disconnected)
+    assert.deepEqual(events, [true, false]);
+  });
+
+  it('reports disconnect when the socket closes', async () => {
+    const events = [];
+    const c = new EventSubClient({
+      twitchApi: mockTwitchApi(), channelLogin: 'x',
+      reconnectBaseMs: 100, maxReconnectMs: 1000,
+      onConnectionChange: (v) => events.push(v)
+    });
+    c.started = true;
+    c._setConnected(true);     // simulate "connected"
+    c._handleSocketClose(1006); // socket dropped
+    assert.deepEqual(events, [true, false]);
+    await c.stop();
+  });
 });

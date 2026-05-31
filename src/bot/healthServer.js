@@ -102,7 +102,7 @@ export class HealthServer {
       online: this.bot.streamMonitor?.isOnline ?? false,
       game: this.bot.streamMonitor?.currentGame ?? null,
       title: this.bot.streamMonitor?.currentTitle ?? null,
-      users: this.bot.presentUsers?.size ?? 0,
+      users: this.bot.chatterPresence?.getPresentCount() ?? 0,
       tracked: this.bot.userMemory?.memories?.size ?? 0
     });
   }

@@ -25,7 +25,7 @@ export class TwitchApi {
         Promise.resolve(
           this.authProvider.addUserForToken(
             { accessToken: broadcasterToken, refreshToken: broadcasterRefreshToken, expiresIn: 0, obtainmentTimestamp: 0 },
-            ['channel:read:redemptions', 'channel:read:subscriptions']
+            ['channel:read:redemptions', 'channel:read:subscriptions', 'moderator:read:chatters']
           )
         ).then(broadcasterId => { this._broadcasterId = broadcasterId; })
       );
@@ -38,6 +38,7 @@ export class TwitchApi {
     this._latestTokenData = null;
     this._userId = null;
     this._broadcasterId = null;
+    this._channelId = null;
   }
 
   /** Wait for token registration to complete. Call once at startup. */
@@ -85,5 +86,25 @@ export class TwitchApi {
     const channel = await this.api.channels.getChannelInfoById(broadcasterId);
     if (!channel) return null;
     return { title: channel.title, gameName: channel.gameName };
+  }
+
+  /**
+   * Get the list of users currently connected to the channel's chat session.
+   * Uses the broadcaster token (which must carry the `moderator:read:chatters` scope).
+   * Returns an array of { userId, userName, displayName }, or null if the channel
+   * can't be resolved. Throws on API/auth errors so the caller can react.
+   */
+  async getChatters(channelLogin) {
+    if (!this._channelId) {
+      const user = await this.api.users.getUserByName(channelLogin);
+      if (!user) return null;
+      this._channelId = user.id;
+    }
+    const result = await this.api.chat.getChatters(this._channelId, { limit: 1000 });
+    return (result?.data ?? []).map(c => ({
+      userId: c.userId,
+      userName: c.userName,
+      displayName: c.userDisplayName
+    }));
   }
 }

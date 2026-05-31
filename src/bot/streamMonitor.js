@@ -21,6 +21,7 @@ export class StreamMonitor extends EventEmitter {
     this._timer = null;
     this._eventSubConnected = false;
     this._eventSubLiveAt = 0; // timestamp of last EventSub live confirmation
+    this._seeded = false;     // first poll adopts state silently (no live/offline announce on restart)
   }
 
   start() {
@@ -98,13 +99,17 @@ export class StreamMonitor extends EventEmitter {
       const info = await this.twitchApi.getStreamByUserName(this.channel);
       const wasOnline = this.isOnline;
       const previousGame = this.currentGame;
+      const seeded = this._seeded;
 
       if (info) {
         this.isOnline = true;
         this.currentGame = info.gameName;
         this.currentTitle = info.title;
         this.streamStartTime = new Date(info.startedAt).getTime();
-        if (!wasOnline) {
+        this._seeded = true;
+        // Only announce a genuine offline->online transition observed while running,
+        // never the initial state at startup (avoids re-announcing on every restart).
+        if (!wasOnline && seeded) {
           this.emit('live', { title: info.title, game: info.gameName });
         } else if (previousGame && previousGame !== this.currentGame) {
           this.emit('categoryChange', { previous: previousGame, current: this.currentGame, title: this.currentTitle });
@@ -116,7 +121,8 @@ export class StreamMonitor extends EventEmitter {
           return;
         }
         this.isOnline = false;
-        if (wasOnline) this.emit('offline');
+        this._seeded = true;
+        if (wasOnline && seeded) this.emit('offline');
       }
     } catch (err) {
       log('warn', `Stream check failed: ${err.message}`);

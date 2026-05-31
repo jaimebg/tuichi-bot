@@ -104,6 +104,12 @@ export function buildConfig(env = process.env) {
     channelPoints: Object.freeze({
       enabled: true, reconnectBaseMs: 5000, maxReconnectMs: 60000, keepaliveGraceMs: 15000
     }),
+    presence: Object.freeze({
+      pollIntervalMs: 45_000,            // how often to poll Helix Get Chatters
+      confirmLeaveCycles: 2,             // consecutive absent polls before a goodbye
+      recentMessageHoldMs: 5 * 60 * 1000, // don't goodbye someone who chatted this recently
+      greetCooldownMs: 30 * 60 * 1000     // minimum gap before re-greeting a returning viewer
+    }),
     health: Object.freeze({
       port: Number(env.HEALTH_PORT) || 9090,
       apiKey: (env.HEALTH_API_KEY || '').trim() || null
