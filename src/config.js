@@ -13,6 +13,23 @@ const REQUIRED_ENV = [
   'TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET', 'GROQ_API_KEY'
 ];
 
+const DEFAULT_EXCLUDED_BOTS = ['streamelements', 'nightbot', 'streamlabs', 'moobot', 'fossabot'];
+
+/**
+ * Usuarios excluidos de las interacciones proactivas del bot: saludos, mensajes de inactividad
+ * y listado de top users. NO filtra mensajes entrantes: sus mensajes se procesan con normalidad.
+ */
+function buildExcludedUsers(env, botUsername, channel) {
+  const extra = (env.EXCLUDED_USERS || '')
+    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  return new Set([
+    ...DEFAULT_EXCLUDED_BOTS,
+    botUsername.toLowerCase(),
+    channel.toLowerCase().replace(/^#/, ''),
+    ...extra
+  ]);
+}
+
 
 /** Validate required keys exist and are non-empty. */
 export function validateEnv(env, keys) {
@@ -102,6 +119,9 @@ export function buildConfig(env = process.env) {
     }),
     channelPoints: Object.freeze({
       enabled: true, reconnectBaseMs: 5000, maxReconnectMs: 60000, keepaliveGraceMs: 15000
+    }),
+    engagement: Object.freeze({
+      excludedUsers: buildExcludedUsers(env, vars.TWITCH_USERNAME, vars.TWITCH_CHANNEL)
     }),
     presence: Object.freeze({
       pollIntervalMs: 45_000,            // how often to poll Helix Get Chatters

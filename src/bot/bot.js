@@ -18,7 +18,6 @@ import { Scheduler } from './scheduler.js';
 import { MetricsCollector } from './metricsCollector.js';
 import { HealthServer } from './healthServer.js';
 import { Watchdog } from './watchdog.js';
-import { IGNORED_USERS } from '../twitch/constants.js';
 import { normalizeWhitespace, clampResponseLength } from '../utils/text.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -67,7 +66,7 @@ export class Bot {
     this.recentChat = new RecentChatTracker(this.db, config.intelligence.recentChatLimit, config.intelligence.contextWindowMinutes);
     this.conversationThreads = new ConversationThreads(this.db, config.intelligence.conversationThreadLimit);
     this.messageLogger = new MessageLogger();
-    this.inactivityTracker = new InactivityTracker(15, 90000, IGNORED_USERS);
+    this.inactivityTracker = new InactivityTracker(15, 90000, config.engagement.excludedUsers);
     this.lastSpontaneousReplyAt = 0;
 
     // Games (AI callback injected, not imported)
@@ -122,7 +121,7 @@ export class Bot {
       twitchApi: this.twitchApi,
       channel: config.twitch.channel,
       botUsername: config.twitch.username,
-      ignoredUsers: IGNORED_USERS,
+      ignoredUsers: config.engagement.excludedUsers,
       confirmLeaveCycles: config.presence.confirmLeaveCycles,
       recentMessageHoldMs: config.presence.recentMessageHoldMs
     }) : null;
@@ -435,7 +434,7 @@ export class Bot {
   _handlePresenceJoin(userKey, username) {
     if (!this.greetingsEnabled) return;
     if (userKey === this.config.twitch.username) return;
-    if (IGNORED_USERS.has(userKey)) return;
+    if (this.config.engagement.excludedUsers.has(userKey)) return;
     // Re-greet cooldown: don't greet a user we already greeted recently.
     const lastGreeted = this.greetedUsers.get(userKey);
     if (lastGreeted && Date.now() - lastGreeted < this.config.presence.greetCooldownMs) return;
@@ -448,7 +447,7 @@ export class Bot {
     // Confirmed departure: forget the greeting so a genuine rejoin is greeted again
     // immediately (no cooldown). The cooldown only suppresses re-greets without a leave.
     this.greetedUsers.delete(userKey);
-    if (!this.greetingsEnabled || IGNORED_USERS.has(userKey)) return;
+    if (!this.greetingsEnabled || this.config.engagement.excludedUsers.has(userKey)) return;
     this._sendGoodbye(username);
   }
 
@@ -584,7 +583,7 @@ export class Bot {
   async _generateStreamStartMessage(title, game) {
     if (!this.ai.groqConfig) return `JaimeVaRecto está ahora en directo ${title} ${game}`;
     const habitualUsers = Array.from(this.userMemory.memories.keys())
-      .filter(u => !IGNORED_USERS.has(u.toLowerCase())).slice(0, 10).join(', ');
+      .filter(u => !this.config.engagement.excludedUsers.has(u.toLowerCase())).slice(0, 10).join(', ');
     const prompt = `Genera un mensaje de bienvenida detallado y atractivo para el inicio de un stream de Twitch. Título: "${title}". Categoría: "${game}". Usuarios habituales: ${habitualUsers || 'Ninguno disponible'}. El mensaje debe incluir el titulo y la categoría. Hasta 400 caracteres, entusiasta, único. Responde solo con el mensaje.`;
     const msgs = [
       { role: 'system', content: `Eres un creador de contenido de Twitch entusiasta. Tu personalidad es: ${this.config.resources.persona}.` },

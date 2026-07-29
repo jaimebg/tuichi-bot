@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateEnv } from '../../src/config.js';
+import { validateEnv, buildConfig } from '../../src/config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,5 +27,28 @@ describe('validateEnv', () => {
     const result = validateEnv(env, ['TWITCH_USERNAME', 'GROQ_API_KEY']);
     assert.equal(result.TWITCH_USERNAME, 'bot');
     assert.equal(result.GROQ_API_KEY, 'key123');
+  });
+});
+
+describe('engagement.excludedUsers', () => {
+  const baseEnv = {
+    TWITCH_USERNAME: 'mibot', TWITCH_CHANNEL: 'micanal',
+    TWITCH_API_TOKEN: 'x', TWITCH_REFRESH_TOKEN: 'x',
+    TWITCH_CLIENT_ID: 'x', TWITCH_CLIENT_SECRET: 'x', GROQ_API_KEY: 'x'
+  };
+
+  it('incluye por defecto bots comunes, el bot y el canal', () => {
+    const cfg = buildConfig({ ...baseEnv });
+    assert.ok(cfg.engagement.excludedUsers.has('streamelements'));
+    assert.ok(cfg.engagement.excludedUsers.has('nightbot'));
+    assert.ok(cfg.engagement.excludedUsers.has('mibot'));
+    assert.ok(cfg.engagement.excludedUsers.has('micanal'));
+  });
+
+  it('añade los usuarios de EXCLUDED_USERS, normalizados a minúsculas', () => {
+    const cfg = buildConfig({ ...baseEnv, EXCLUDED_USERS: 'OtroBot, Tercero ,,' });
+    assert.ok(cfg.engagement.excludedUsers.has('otrobot'));
+    assert.ok(cfg.engagement.excludedUsers.has('tercero'));
+    assert.ok(!cfg.engagement.excludedUsers.has(''));
   });
 });
