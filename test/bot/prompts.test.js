@@ -7,11 +7,12 @@ import {
 describe('prompts', () => {
   it('interpola el canal en el prompt de respuesta espontánea', () => {
     const p = spontaneousReplySystemPrompt({
-      persona: 'PERSONA', channel: 'micanal', contextText: '', maxChars: 400
+      persona: 'PERSONA', channel: 'micanal', contextText: '\nContexto: CONTEXTO_DE_PRUEBA', maxChars: 400
     });
     assert.ok(p.includes('micanal'));
     assert.ok(p.includes('PERSONA'));
     assert.ok(p.includes('400'));
+    assert.ok(p.includes('CONTEXTO_DE_PRUEBA'));
     assert.ok(!p.toLowerCase().includes('jaimevarecto'));
   });
 
@@ -20,6 +21,12 @@ describe('prompts', () => {
     assert.ok(m.includes('MiCanal'));
     assert.ok(m.includes('Mi título'));
     assert.ok(m.includes('Just Chatting'));
+  });
+
+  it('interpola el canal y la persona en el prompt de vergüenza', () => {
+    const s = shameSystemPrompt({ persona: 'PERSONA', channel: 'micanal' });
+    assert.ok(s.includes('micanal'));
+    assert.ok(s.includes('PERSONA'));
   });
 
   it('ningún prompt contiene el canal original hardcodeado', () => {
