@@ -134,6 +134,9 @@ export class Bot {
     // Session state
     this.greetedUsers = new Map();   // userKey -> last-greeted timestamp (re-greet cooldown)
     this.greetingsEnabled = true;
+    // Owner-only commands (!status, !saluditos) are gated on the configured channel,
+    // not a hardcoded name, so any deployment's channel owner can use them.
+    this.ownerKey = config.twitch.channel.toLowerCase().replace(/^#/, '');
 
     // Production modules
     this.metrics = new MetricsCollector();
@@ -290,7 +293,7 @@ export class Bot {
     }
 
     // Status command (owner only)
-    if (message === '!status' && userKey === 'jaimevarecto') {
+    if (message === '!status' && userKey === this.ownerKey) {
       const chatOk = this.chat.isHealthy(this.streamMonitor?.isOnline ?? false);
       let dbOk = false;
       try { dbOk = !!this.db.raw.prepare('SELECT 1 as v').get(); } catch { /* db unavailable */ }
@@ -311,7 +314,7 @@ export class Bot {
     }
 
     // Greetings toggle (owner only)
-    if (message === '!saluditos' && userKey === 'jaimevarecto') {
+    if (message === '!saluditos' && userKey === this.ownerKey) {
       this.greetingsEnabled = !this.greetingsEnabled;
       this.chat.sendMessage(`Saludos ${this.greetingsEnabled ? 'activados' : 'desactivados'}`)
         .catch(err => log('warn', `Failed to send saluditos toggle: ${err.message}`));
