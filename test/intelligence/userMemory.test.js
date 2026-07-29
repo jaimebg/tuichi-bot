@@ -85,12 +85,18 @@ describe('UserMemory', () => {
   it('cleanup() elimina usuarios inactivos más allá de la ventana', () => {
     const db = new Database(':memory:');
     const memory = new UserMemory(db, 100, 7);
-    memory.updateEngagement('inactiva', 'hola', Date.now(), { displayName: 'Inactiva' });
-    memory.getUserData('inactiva').engagementPattern.lastSeen = Date.now() - 10 * 86400000;
 
-    memory.cleanup();
+    const hace10dias = Date.now() - 10 * 24 * 60 * 60 * 1000;
+    memory.updateEngagement('inactiva', 'hola', hace10dias, { displayName: 'Inactiva' });
+    memory.getUserData('inactiva').engagementPattern.lastSeen = hace10dias;
+    memory.getUserData('inactiva').firstSeen = hace10dias;
+    memory.save();
 
-    assert.equal(memory.memories.has('inactiva'), false);
+    const reloaded = new UserMemory(db, 100, 7);
+    reloaded.load();
+    reloaded.cleanup();
+
+    assert.equal(reloaded.memories.has('inactiva'), false);
     db.close();
   });
 });
