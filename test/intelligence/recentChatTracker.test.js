@@ -37,9 +37,11 @@ describe('RecentChatTracker', () => {
     const tracker = new RecentChatTracker(db, 20, 10);
     tracker.load();
 
-    for (const m of tracker.messages) {
-      assert.ok(!Number.isNaN(m.timestamp), 'timestamp es NaN');
-    }
+    assert.equal(tracker.messages.length, 1, 'la fila con timestamp NULL se descartó en vez de recuperarse');
+    const [msg] = tracker.messages;
+    assert.ok(!Number.isNaN(msg.timestamp), 'timestamp es NaN');
+    const skewMinutes = Math.abs(Date.now() - msg.timestamp) / 60000;
+    assert.ok(skewMinutes < 1, `desfase de ${skewMinutes} minutos`);
     db.close();
   });
 });

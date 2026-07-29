@@ -35,4 +35,22 @@ describe('UserMemory', () => {
     assert.equal(reloaded.getUserData('bob').metadata.displayName, 'Bob');
     db.close();
   });
+
+  it('no produce NaN si first_seen/last_seen vienen vacíos en la BD', () => {
+    const db = new Database(':memory:');
+    db.raw.prepare("INSERT INTO user_memory (user_id, first_seen, last_seen) VALUES ('sinfechas', NULL, NULL)").run();
+
+    const memory = new UserMemory(db, 100, 7);
+    memory.load();
+    const data = memory.getUserData('sinfechas');
+
+    assert.ok(!Number.isNaN(data.firstSeen), 'firstSeen es NaN');
+    const firstSeenSkew = Math.abs(Date.now() - data.firstSeen) / 60000;
+    assert.ok(firstSeenSkew < 1, `desfase de ${firstSeenSkew} minutos en firstSeen`);
+
+    assert.ok(!Number.isNaN(data.engagementPattern.lastSeen), 'lastSeen es NaN');
+    const lastSeenSkew = Math.abs(Date.now() - data.engagementPattern.lastSeen) / 60000;
+    assert.ok(lastSeenSkew < 1, `desfase de ${lastSeenSkew} minutos en lastSeen`);
+    db.close();
+  });
 });
