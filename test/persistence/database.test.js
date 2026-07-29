@@ -130,6 +130,50 @@ describe('Database', () => {
       const row = db.raw.prepare('SELECT applied_at FROM schema_version WHERE version=1').get();
       assert.match(row.applied_at, ISO_8601_UTC);
     });
+
+    /**
+     * `CREATE TABLE IF NOT EXISTS` no reescribe la definición de una tabla que ya existe, así que
+     * en la BD de producción los DEFAULT de las columnas siguen siendo `datetime('now')`. Se
+     * recrean aquí las tablas con el DEFAULT antiguo para comprobar que las escrituras emiten
+     * ISO-8601 por sí mismas y no dependen del DEFAULT de la columna.
+     */
+    describe('sobre una BD con el schema antiguo ya existente', () => {
+      const LEGACY_TABLES = [
+        `CREATE TABLE recent_chat (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           user_id TEXT NOT NULL, display_name TEXT, message TEXT NOT NULL,
+           timestamp TEXT DEFAULT (datetime('now')))`,
+        `CREATE TABLE user_messages (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           user_id TEXT NOT NULL, display_name TEXT, message TEXT NOT NULL,
+           timestamp TEXT DEFAULT (datetime('now')))`,
+        `CREATE TABLE game_history (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           game_type TEXT NOT NULL, started_by TEXT, participants TEXT, result TEXT,
+           started_at TEXT DEFAULT (datetime('now')), ended_at TEXT)`
+      ];
+
+      beforeEach(() => {
+        db.raw.exec('DROP TABLE recent_chat; DROP TABLE user_messages; DROP TABLE game_history;');
+        for (const sql of LEGACY_TABLES) db.raw.exec(sql);
+      });
+
+      it('recent_chat.timestamp sigue siendo ISO-8601 con Z', () => {
+        db.chat.addMessage('alice', 'Alice', 'hola');
+        assert.match(db.chat.getRecent(1)[0].timestamp, ISO_8601_UTC);
+      });
+
+      it('user_messages.timestamp sigue siendo ISO-8601 con Z', () => {
+        db.users.upsert({ userId: 'alice', displayName: 'Alice' });
+        db.users.addMessage('alice', 'Alice', 'hola');
+        assert.match(db.users.getMessages('alice')[0].timestamp, ISO_8601_UTC);
+      });
+
+      it('game_history.started_at sigue siendo ISO-8601 con Z', () => {
+        db.games.log({ gameType: 'trivia', startedBy: 'alice' });
+        assert.match(db.games.getRecent('trivia', 1)[0].started_at, ISO_8601_UTC);
+      });
+    });
   });
 
   /**

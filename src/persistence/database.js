@@ -11,6 +11,11 @@ import { log } from '../logger.js';
  *
  * Se define una sola vez a propósito: un formato distinto en cualquiera de las columnas
  * reintroduciría timestamps ambiguos de forma silenciosa.
+ *
+ * Todas las escrituras lo indican de forma EXPLÍCITA en el INSERT en lugar de apoyarse en el
+ * DEFAULT de la columna: `CREATE TABLE IF NOT EXISTS` no reescribe la definición de una tabla
+ * que ya existe, así que en la BD de producción los DEFAULT siguen usando `datetime()`.
+ * Sin el valor explícito, esas columnas seguirían generando filas ambiguas indefinidamente.
  */
 const NOW_UTC = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 
@@ -86,10 +91,10 @@ export class Database {
     s.getAllUsers = this.raw.prepare('SELECT * FROM user_memory');
     s.deleteUser = this.raw.prepare('DELETE FROM user_memory WHERE user_id=?');
     // user_messages
-    s.addUserMsg = this.raw.prepare('INSERT INTO user_messages (user_id,display_name,message) VALUES (?,?,?)');
+    s.addUserMsg = this.raw.prepare(`INSERT INTO user_messages (user_id,display_name,message,timestamp) VALUES (?,?,?,${NOW_UTC})`);
     s.getUserMsgs = this.raw.prepare('SELECT * FROM user_messages WHERE user_id=? ORDER BY julianday(timestamp) DESC LIMIT ?');
     // recent_chat
-    s.addChat = this.raw.prepare('INSERT INTO recent_chat (user_id,display_name,message) VALUES (?,?,?)');
+    s.addChat = this.raw.prepare(`INSERT INTO recent_chat (user_id,display_name,message,timestamp) VALUES (?,?,?,${NOW_UTC})`);
     s.getRecentChat = this.raw.prepare('SELECT * FROM recent_chat ORDER BY julianday(timestamp) DESC LIMIT ?');
     s.pruneChat = this.raw.prepare("DELETE FROM recent_chat WHERE julianday(timestamp) < julianday('now', ? || ' minutes')");
     // conversation_threads
@@ -105,7 +110,7 @@ export class Database {
     s.setState = this.raw.prepare('INSERT OR REPLACE INTO bot_state (key,value) VALUES (?,?)');
     s.getState = this.raw.prepare('SELECT value FROM bot_state WHERE key=?');
     // game_history
-    s.logGame = this.raw.prepare('INSERT INTO game_history (game_type,started_by,participants,result) VALUES (@gameType,@startedBy,@participants,@result)');
+    s.logGame = this.raw.prepare(`INSERT INTO game_history (game_type,started_by,participants,result,started_at) VALUES (@gameType,@startedBy,@participants,@result,${NOW_UTC})`);
     s.endGame = this.raw.prepare(`UPDATE game_history SET ended_at=${NOW_UTC},result=? WHERE id=?`);
     s.getRecentGames = this.raw.prepare('SELECT * FROM game_history WHERE game_type=? ORDER BY julianday(started_at) DESC LIMIT ?');
 
