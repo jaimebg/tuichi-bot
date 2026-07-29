@@ -1,5 +1,8 @@
-/** Formato de datetime() de SQLite: "YYYY-MM-DD HH:MM:SS" (UTC, sin marcador de zona). */
-const SQLITE_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+/**
+ * Formato de datetime() de SQLite: "YYYY-MM-DD HH:MM:SS" (UTC, sin marcador de zona),
+ * con segundos fraccionarios opcionales como los que produce strftime('%Y-%m-%d %H:%M:%f', ...).
+ */
+const SQLITE_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/;
 
 /**
  * Convierte un timestamp leído de SQLite a epoch en ms.

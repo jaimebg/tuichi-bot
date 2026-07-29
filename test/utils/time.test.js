@@ -25,6 +25,14 @@ describe('parseSqliteUtc', () => {
     );
   });
 
+  it('interpreta el formato de SQLite con segundos fraccionarios (separado por espacio) como UTC', () => {
+    // strftime('%Y-%m-%d %H:%M:%f', ...) produce esta forma; no debe caer a Date.parse en hora local.
+    assert.equal(
+      parseSqliteUtc('2026-07-29 21:02:45.123'),
+      Date.UTC(2026, 6, 29, 21, 2, 45) + 123
+    );
+  });
+
   it('acepta epoch numérico y cadena numérica', () => {
     assert.equal(parseSqliteUtc(1785358965158), 1785358965158);
     assert.equal(parseSqliteUtc('1785358965158'), 1785358965158);
