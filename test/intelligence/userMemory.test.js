@@ -18,6 +18,10 @@ describe('UserMemory', () => {
     assert.ok(!Number.isNaN(data.firstSeen), 'firstSeen es NaN');
     const skewMinutes = Math.abs(Date.now() - data.firstSeen) / 60000;
     assert.ok(skewMinutes < 1, `desfase de ${skewMinutes} minutos en firstSeen`);
+
+    assert.ok(!Number.isNaN(data.engagementPattern.lastSeen), 'lastSeen es NaN');
+    const lastSeenSkewMinutes = Math.abs(Date.now() - data.engagementPattern.lastSeen) / 60000;
+    assert.ok(lastSeenSkewMinutes < 1, `desfase de ${lastSeenSkewMinutes} minutos en lastSeen`);
     db.close();
   });
 
@@ -42,12 +46,18 @@ describe('UserMemory', () => {
 
     const memory = new UserMemory(db, 100, 7);
     memory.load();
-    const data = memory.getUserData('sinfechas');
+    // Lee directamente del Map, sin pasar por getUserData(): ese método repara
+    // en el sitio un firstSeen falsy (incluido NaN), lo que enmascararía
+    // justo el bug que este test debe detectar.
+    const data = memory.memories.get('sinfechas');
 
+    assert.ok(data, 'no se cargó el registro sinfechas');
+    assert.ok(data.firstSeen !== null, 'firstSeen es null');
     assert.ok(!Number.isNaN(data.firstSeen), 'firstSeen es NaN');
     const firstSeenSkew = Math.abs(Date.now() - data.firstSeen) / 60000;
     assert.ok(firstSeenSkew < 1, `desfase de ${firstSeenSkew} minutos en firstSeen`);
 
+    assert.ok(data.engagementPattern.lastSeen !== null, 'lastSeen es null');
     assert.ok(!Number.isNaN(data.engagementPattern.lastSeen), 'lastSeen es NaN');
     const lastSeenSkew = Math.abs(Date.now() - data.engagementPattern.lastSeen) / 60000;
     assert.ok(lastSeenSkew < 1, `desfase de ${lastSeenSkew} minutos en lastSeen`);
