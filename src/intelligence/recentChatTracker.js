@@ -1,5 +1,6 @@
 import { normalizeWhitespace } from '../utils/text.js';
 import { log } from '../logger.js';
+import { parseSqliteUtc } from '../utils/time.js';
 
 export class RecentChatTracker {
     constructor(db, limit = 20, contextWindowMinutes = 10) {
@@ -53,7 +54,7 @@ export class RecentChatTracker {
         const rows = this.db.chat.getRecent(this.limit);
         this.messages = rows.reverse().map(r => ({
             userKey: r.user_id, displayName: r.display_name,
-            message: r.message, timestamp: new Date(r.timestamp + 'Z').getTime()
+            message: r.message, timestamp: parseSqliteUtc(r.timestamp) ?? Date.now()
         }));
         this.cleanOldMessages();
         log('info', `Loaded ${this.messages.length} recent chat messages from DB`);
