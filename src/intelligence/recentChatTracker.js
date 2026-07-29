@@ -41,7 +41,6 @@ export class RecentChatTracker {
                 if (botUsername) {
                     const lower = msg.message.toLowerCase();
                     if (lower.includes(`@${botUsername}`)) return false;
-                    if (lower.startsWith('!vicky') || lower.startsWith('!vickiña')) return false;
                 }
                 return true;
             })

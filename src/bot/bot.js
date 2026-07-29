@@ -69,7 +69,6 @@ export class Bot {
     this.messageLogger = new MessageLogger();
     this.inactivityTracker = new InactivityTracker(15, 90000, IGNORED_USERS);
     this.lastSpontaneousReplyAt = 0;
-    this.vickyThreads = new Set();
 
     // Games (AI callback injected, not imported)
     this.gameController = new GameController({
@@ -286,7 +285,6 @@ export class Bot {
         '!trivia - Trivia con IA (responder con !a, !b, !c, !d) | ' +
         '!aventura [tema] - Aventura interactiva (votar con !1, !2...) | ' +
         '!survive - Battle royale de chat | ' +
-        '!vicky [mensaje] - Habla con Vicky Perez | ' +
         `También puedes mencionarme con @${this.config.twitch.username} para hablar conmigo guapa xdd`
       ).catch(err => log('warn', `Failed to send ayuda: ${err.message}`));
       return;
@@ -318,12 +316,6 @@ export class Bot {
       this.greetingsEnabled = !this.greetingsEnabled;
       this.chat.sendMessage(`Saludos ${this.greetingsEnabled ? 'activados' : 'desactivados'}`)
         .catch(err => log('warn', `Failed to send saluditos toggle: ${err.message}`));
-      return;
-    }
-
-    // Vicky chatbot command
-    if (message.startsWith('!vicky') || message.startsWith('!vickiña')) {
-      this._handleVicky({ userKey, displayName, message, msg });
       return;
     }
 
@@ -417,56 +409,6 @@ export class Bot {
     }
   }
 
-  // --- Vicky chatbot ---
-  async _handleVicky({ userKey, displayName, message, msg }) {
-    if (!this.ai.groqConfig) return;
-    if (this.ai.pendingRequests.has(`vicky:${userKey}`)) return;
-    const ready = await this.ai.waitForCooldown(userKey);
-    if (!ready) return;
-
-    this.ai.pendingRequests.add(`vicky:${userKey}`);
-    try {
-      const alias = this.ai._getAlias(userKey, displayName);
-      const userMessage = message.replace(/^!vicki[ñn]a\s*|^!vicky\s*/i, '').trim();
-
-      // Build conversation history from thread
-      const threadId = this.conversationThreads.getOrCreateThread(userKey);
-      this.vickyThreads.add(threadId);
-      const threadHistory = this.conversationThreads.getThread(threadId, 6)
-        .filter(m => m.timestamp > Date.now() - 10 * 60 * 1000)
-        .map(m => ({ role: m.role, content: m.content }));
-
-      const prompt = userMessage
-        ? `${alias} te dice: "${userMessage}"`
-        : `${alias} aparece en el chat. Salúdale o suelta algo típico tuyo.`;
-
-      const msgs = [
-        { role: 'system', content: `${this.config.resources.vicky}\nResponde en no mas de ${this.ai.maxChars} caracteres.` },
-        ...threadHistory,
-        { role: 'user', content: prompt }
-      ];
-
-      const reply = await this.ai.fetchGroqResponse(msgs);
-      if (reply === null) {
-        await this.chat.sendMessage('ahora mismo no puedo hablar que tengo la Bruja Averia encima', msg);
-        return;
-      }
-      const finalMessage = clampResponseLength(reply, this.ai.maxChars);
-      if (!finalMessage?.trim()) return;
-
-      this.conversationThreads.addMessage(threadId, 'user', userMessage || message, Date.now());
-      this.conversationThreads.addMessage(threadId, 'assistant', finalMessage, Date.now());
-
-      await this.chat.sendMessage(`✅Vickiña: ${finalMessage}`, msg);
-      this.ai._recordResponse(userKey);
-      log('debug', `Vicky replied to ${displayName}: ${finalMessage.slice(0, 50)}...`);
-    } catch (err) {
-      log('warn', `Vicky failed for ${displayName}: ${err.message}`);
-    } finally {
-      this.ai.pendingRequests.delete(`vicky:${userKey}`);
-    }
-  }
-
   // --- Auto-trigger media ---
   _handleAutoTriggerMedia(message, displayName) {
     if (!this.mediaOverlay) return;
@@ -550,7 +492,6 @@ export class Bot {
 
     const mentionContext = { hasMention, isReplyToBot, replyParentLogin };
     const threadId = this.conversationThreads.getOrCreateThread(userKey, isReplyToBot, replyParentLogin);
-    this.vickyThreads.delete(threadId);
 
     this._respondToMention({ userKey, displayName, message, msg, mentionContext, threadId, timestamp });
   }
@@ -577,12 +518,10 @@ export class Bot {
         .filter(m => m.timestamp > Date.now() - 10 * 60 * 1000)
         .map(m => ({ role: m.role, content: m.content }));
 
-      const isVickyThread = this.vickyThreads.has(threadId);
       const chatMessages = this.ai.buildChatMessages({
         userKey, displayName, message, mentionContext,
         streamContext, recentChat, userSummary, userProfile,
-        conversationHistory,
-        ...(isVickyThread && { personaOverride: this.config.resources.vicky })
+        conversationHistory
       });
 
       let aiReply = await this.ai.fetchGroqResponse(chatMessages);
@@ -597,8 +536,7 @@ export class Bot {
       }
 
       // @twurple reply uses { replyTo: msg } — pass the raw msg object
-      const outMessage = isVickyThread ? `✅Vickiña: ${finalMessage}` : finalMessage;
-      await this.chat.sendMessage(outMessage, msg);
+      await this.chat.sendMessage(finalMessage, msg);
 
       this.conversationThreads.addMessage(threadId, 'user', message, timestamp);
       this.conversationThreads.addMessage(threadId, 'assistant', finalMessage, Date.now());
@@ -688,9 +626,6 @@ export class Bot {
     this.userMemory.cleanup();
     this.conversationThreads.cleanup();
     this.inactivityTracker.cleanup();
-    for (const threadId of this.vickyThreads) {
-      if (!this.conversationThreads.threads.has(threadId)) this.vickyThreads.delete(threadId);
-    }
     this.userMemory.save();
     this.recentChat.save();
     this.conversationThreads.save();
