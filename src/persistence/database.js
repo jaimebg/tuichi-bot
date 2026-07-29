@@ -3,36 +3,47 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { log } from '../logger.js';
 
+/**
+ * Expresión SQL que produce el instante actual en ISO-8601 UTC ("2026-07-29T21:02:45.123Z").
+ *
+ * El `datetime()` de SQLite devuelve "2026-07-29 21:02:45": UTC pero sin marcador de zona, así que
+ * `new Date(str)` lo interpretaría como hora local. Guardar el sufijo `Z` elimina la ambigüedad.
+ *
+ * Se define una sola vez a propósito: un formato distinto en cualquiera de las columnas
+ * reintroduciría timestamps ambiguos de forma silenciosa.
+ */
+const NOW_UTC = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
+
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_version (
   version INTEGER PRIMARY KEY,
-  applied_at TEXT DEFAULT (datetime('now'))
+  applied_at TEXT DEFAULT (${NOW_UTC})
 );
 CREATE TABLE IF NOT EXISTS user_memory (
   user_id TEXT PRIMARY KEY, display_name TEXT,
   personality_traits TEXT, conversation_themes TEXT, top_words TEXT,
   message_count INTEGER DEFAULT 0, avg_message_length REAL DEFAULT 0,
   active_hours TEXT,
-  first_seen TEXT DEFAULT (datetime('now')),
-  last_seen TEXT DEFAULT (datetime('now'))
+  first_seen TEXT DEFAULT (${NOW_UTC}),
+  last_seen TEXT DEFAULT (${NOW_UTC})
 );
 CREATE TABLE IF NOT EXISTS user_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id TEXT NOT NULL, display_name TEXT, message TEXT NOT NULL,
-  timestamp TEXT DEFAULT (datetime('now')),
+  timestamp TEXT DEFAULT (${NOW_UTC}),
   FOREIGN KEY (user_id) REFERENCES user_memory(user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_user_messages_user ON user_messages(user_id, timestamp);
 CREATE TABLE IF NOT EXISTS recent_chat (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id TEXT NOT NULL, display_name TEXT, message TEXT NOT NULL,
-  timestamp TEXT DEFAULT (datetime('now'))
+  timestamp TEXT DEFAULT (${NOW_UTC})
 );
 CREATE INDEX IF NOT EXISTS idx_recent_chat_time ON recent_chat(timestamp);
 CREATE TABLE IF NOT EXISTS conversation_threads (
   user_id TEXT PRIMARY KEY,
   messages TEXT NOT NULL,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (${NOW_UTC})
 );
 CREATE TABLE IF NOT EXISTS user_context (
   user_id TEXT PRIMARY KEY, display_name TEXT,
@@ -40,7 +51,7 @@ CREATE TABLE IF NOT EXISTS user_context (
   message_count INTEGER DEFAULT 0, avg_message_length REAL DEFAULT 0,
   active_hours TEXT, personality TEXT, themes TEXT, top_words TEXT,
   recent_commands TEXT, preferences TEXT, metadata TEXT,
-  updated_at TEXT DEFAULT (datetime('now'))
+  updated_at TEXT DEFAULT (${NOW_UTC})
 );
 CREATE TABLE IF NOT EXISTS bot_state (
   key TEXT PRIMARY KEY, value TEXT NOT NULL
@@ -49,7 +60,7 @@ CREATE TABLE IF NOT EXISTS game_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   game_type TEXT NOT NULL, started_by TEXT,
   participants TEXT, result TEXT,
-  started_at TEXT DEFAULT (datetime('now')), ended_at TEXT
+  started_at TEXT DEFAULT (${NOW_UTC}), ended_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_game_history_type ON game_history(game_type, started_at);
 `;
@@ -70,24 +81,24 @@ export class Database {
   _prepare() {
     const s = {};
     // user_memory
-    s.upsertUser = this.raw.prepare(`INSERT INTO user_memory (user_id,display_name,personality_traits,conversation_themes,top_words,message_count,avg_message_length,active_hours,first_seen,last_seen) VALUES (@userId,@displayName,@personalityTraits,@conversationThemes,@topWords,@messageCount,@avgMessageLength,@activeHours,datetime('now'),datetime('now')) ON CONFLICT(user_id) DO UPDATE SET display_name=COALESCE(@displayName,display_name),personality_traits=COALESCE(@personalityTraits,personality_traits),conversation_themes=COALESCE(@conversationThemes,conversation_themes),top_words=COALESCE(@topWords,top_words),message_count=COALESCE(@messageCount,message_count),avg_message_length=COALESCE(@avgMessageLength,avg_message_length),active_hours=COALESCE(@activeHours,active_hours),last_seen=datetime('now')`);
+    s.upsertUser = this.raw.prepare(`INSERT INTO user_memory (user_id,display_name,personality_traits,conversation_themes,top_words,message_count,avg_message_length,active_hours,first_seen,last_seen) VALUES (@userId,@displayName,@personalityTraits,@conversationThemes,@topWords,@messageCount,@avgMessageLength,@activeHours,${NOW_UTC},${NOW_UTC}) ON CONFLICT(user_id) DO UPDATE SET display_name=COALESCE(@displayName,display_name),personality_traits=COALESCE(@personalityTraits,personality_traits),conversation_themes=COALESCE(@conversationThemes,conversation_themes),top_words=COALESCE(@topWords,top_words),message_count=COALESCE(@messageCount,message_count),avg_message_length=COALESCE(@avgMessageLength,avg_message_length),active_hours=COALESCE(@activeHours,active_hours),last_seen=${NOW_UTC}`);
     s.getUser = this.raw.prepare('SELECT * FROM user_memory WHERE user_id=?');
     s.getAllUsers = this.raw.prepare('SELECT * FROM user_memory');
     s.deleteUser = this.raw.prepare('DELETE FROM user_memory WHERE user_id=?');
     // user_messages
     s.addUserMsg = this.raw.prepare('INSERT INTO user_messages (user_id,display_name,message) VALUES (?,?,?)');
-    s.getUserMsgs = this.raw.prepare('SELECT * FROM user_messages WHERE user_id=? ORDER BY timestamp DESC LIMIT ?');
+    s.getUserMsgs = this.raw.prepare('SELECT * FROM user_messages WHERE user_id=? ORDER BY julianday(timestamp) DESC LIMIT ?');
     // recent_chat
     s.addChat = this.raw.prepare('INSERT INTO recent_chat (user_id,display_name,message) VALUES (?,?,?)');
-    s.getRecentChat = this.raw.prepare('SELECT * FROM recent_chat ORDER BY timestamp DESC LIMIT ?');
-    s.pruneChat = this.raw.prepare("DELETE FROM recent_chat WHERE timestamp < datetime('now', ? || ' minutes')");
+    s.getRecentChat = this.raw.prepare('SELECT * FROM recent_chat ORDER BY julianday(timestamp) DESC LIMIT ?');
+    s.pruneChat = this.raw.prepare("DELETE FROM recent_chat WHERE julianday(timestamp) < julianday('now', ? || ' minutes')");
     // conversation_threads
-    s.upsertThread = this.raw.prepare(`INSERT INTO conversation_threads (user_id,messages,updated_at) VALUES (?,?,datetime('now')) ON CONFLICT(user_id) DO UPDATE SET messages=excluded.messages,updated_at=datetime('now')`);
+    s.upsertThread = this.raw.prepare(`INSERT INTO conversation_threads (user_id,messages,updated_at) VALUES (?,?,${NOW_UTC}) ON CONFLICT(user_id) DO UPDATE SET messages=excluded.messages,updated_at=${NOW_UTC}`);
     s.getThread = this.raw.prepare('SELECT * FROM conversation_threads WHERE user_id=?');
     s.deleteThread = this.raw.prepare('DELETE FROM conversation_threads WHERE user_id=?');
     s.getAllThreads = this.raw.prepare('SELECT * FROM conversation_threads');
     // user_context
-    s.upsertCtx = this.raw.prepare(`INSERT INTO user_context (user_id,display_name,first_seen,last_seen,message_count,avg_message_length,active_hours,personality,themes,top_words,recent_commands,preferences,metadata,updated_at) VALUES (@userId,@displayName,@firstSeen,@lastSeen,@messageCount,@avgMessageLength,@activeHours,@personality,@themes,@topWords,@recentCommands,@preferences,@metadata,datetime('now')) ON CONFLICT(user_id) DO UPDATE SET display_name=COALESCE(@displayName,display_name),last_seen=COALESCE(@lastSeen,last_seen),message_count=COALESCE(@messageCount,message_count),avg_message_length=COALESCE(@avgMessageLength,avg_message_length),active_hours=COALESCE(@activeHours,active_hours),personality=COALESCE(@personality,personality),themes=COALESCE(@themes,themes),top_words=COALESCE(@topWords,top_words),recent_commands=COALESCE(@recentCommands,recent_commands),preferences=COALESCE(@preferences,preferences),metadata=COALESCE(@metadata,metadata),updated_at=datetime('now')`);
+    s.upsertCtx = this.raw.prepare(`INSERT INTO user_context (user_id,display_name,first_seen,last_seen,message_count,avg_message_length,active_hours,personality,themes,top_words,recent_commands,preferences,metadata,updated_at) VALUES (@userId,@displayName,@firstSeen,@lastSeen,@messageCount,@avgMessageLength,@activeHours,@personality,@themes,@topWords,@recentCommands,@preferences,@metadata,${NOW_UTC}) ON CONFLICT(user_id) DO UPDATE SET display_name=COALESCE(@displayName,display_name),last_seen=COALESCE(@lastSeen,last_seen),message_count=COALESCE(@messageCount,message_count),avg_message_length=COALESCE(@avgMessageLength,avg_message_length),active_hours=COALESCE(@activeHours,active_hours),personality=COALESCE(@personality,personality),themes=COALESCE(@themes,themes),top_words=COALESCE(@topWords,top_words),recent_commands=COALESCE(@recentCommands,recent_commands),preferences=COALESCE(@preferences,preferences),metadata=COALESCE(@metadata,metadata),updated_at=${NOW_UTC}`);
     s.getCtx = this.raw.prepare('SELECT * FROM user_context WHERE user_id=?');
     s.getAllCtx = this.raw.prepare('SELECT * FROM user_context');
     // bot_state
@@ -95,8 +106,8 @@ export class Database {
     s.getState = this.raw.prepare('SELECT value FROM bot_state WHERE key=?');
     // game_history
     s.logGame = this.raw.prepare('INSERT INTO game_history (game_type,started_by,participants,result) VALUES (@gameType,@startedBy,@participants,@result)');
-    s.endGame = this.raw.prepare("UPDATE game_history SET ended_at=datetime('now'),result=? WHERE id=?");
-    s.getRecentGames = this.raw.prepare('SELECT * FROM game_history WHERE game_type=? ORDER BY started_at DESC LIMIT ?');
+    s.endGame = this.raw.prepare(`UPDATE game_history SET ended_at=${NOW_UTC},result=? WHERE id=?`);
+    s.getRecentGames = this.raw.prepare('SELECT * FROM game_history WHERE game_type=? ORDER BY julianday(started_at) DESC LIMIT ?');
 
     const jsonify = (v) => v ? JSON.stringify(v) : null;
 
