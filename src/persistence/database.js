@@ -86,7 +86,7 @@ export class Database {
   _prepare() {
     const s = {};
     // user_memory
-    s.upsertUser = this.raw.prepare(`INSERT INTO user_memory (user_id,display_name,personality_traits,conversation_themes,top_words,message_count,avg_message_length,active_hours,first_seen,last_seen) VALUES (@userId,@displayName,@personalityTraits,@conversationThemes,@topWords,@messageCount,@avgMessageLength,@activeHours,${NOW_UTC},${NOW_UTC}) ON CONFLICT(user_id) DO UPDATE SET display_name=COALESCE(@displayName,display_name),personality_traits=COALESCE(@personalityTraits,personality_traits),conversation_themes=COALESCE(@conversationThemes,conversation_themes),top_words=COALESCE(@topWords,top_words),message_count=COALESCE(@messageCount,message_count),avg_message_length=COALESCE(@avgMessageLength,avg_message_length),active_hours=COALESCE(@activeHours,active_hours),last_seen=${NOW_UTC}`);
+    s.upsertUser = this.raw.prepare(`INSERT INTO user_memory (user_id,display_name,personality_traits,conversation_themes,top_words,message_count,avg_message_length,active_hours,first_seen,last_seen) VALUES (@userId,@displayName,@personalityTraits,@conversationThemes,@topWords,@messageCount,@avgMessageLength,@activeHours,COALESCE(@firstSeen,${NOW_UTC}),COALESCE(@lastSeen,${NOW_UTC})) ON CONFLICT(user_id) DO UPDATE SET display_name=COALESCE(@displayName,display_name),personality_traits=COALESCE(@personalityTraits,personality_traits),conversation_themes=COALESCE(@conversationThemes,conversation_themes),top_words=COALESCE(@topWords,top_words),message_count=COALESCE(@messageCount,message_count),avg_message_length=COALESCE(@avgMessageLength,avg_message_length),active_hours=COALESCE(@activeHours,active_hours),last_seen=COALESCE(@lastSeen,${NOW_UTC})`);
     s.getUser = this.raw.prepare('SELECT * FROM user_memory WHERE user_id=?');
     s.getAllUsers = this.raw.prepare('SELECT * FROM user_memory');
     s.deleteUser = this.raw.prepare('DELETE FROM user_memory WHERE user_id=?');
@@ -115,9 +115,10 @@ export class Database {
     s.getRecentGames = this.raw.prepare('SELECT * FROM game_history WHERE game_type=? ORDER BY julianday(started_at) DESC LIMIT ?');
 
     const jsonify = (v) => v ? JSON.stringify(v) : null;
+    const toIso = (ms) => (typeof ms === 'number' && Number.isFinite(ms) ? new Date(ms).toISOString() : null);
 
     this.users = {
-      upsert: (d) => s.upsertUser.run({ userId: d.userId, displayName: d.displayName ?? null, personalityTraits: jsonify(d.personalityTraits), conversationThemes: jsonify(d.conversationThemes), topWords: jsonify(d.topWords), messageCount: d.messageCount ?? null, avgMessageLength: d.avgMessageLength ?? null, activeHours: jsonify(d.activeHours) }),
+      upsert: (d) => s.upsertUser.run({ userId: d.userId, displayName: d.displayName ?? null, personalityTraits: jsonify(d.personalityTraits), conversationThemes: jsonify(d.conversationThemes), topWords: jsonify(d.topWords), messageCount: d.messageCount ?? null, avgMessageLength: d.avgMessageLength ?? null, activeHours: jsonify(d.activeHours), firstSeen: toIso(d.firstSeen), lastSeen: toIso(d.lastSeen) }),
       get: (id) => s.getUser.get(id),
       getAll: () => s.getAllUsers.all(),
       delete: (id) => s.deleteUser.run(id),

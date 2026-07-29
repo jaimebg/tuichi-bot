@@ -63,4 +63,34 @@ describe('UserMemory', () => {
     assert.ok(lastSeenSkew < 1, `desfase de ${lastSeenSkew} minutos en lastSeen`);
     db.close();
   });
+
+  it('no refresca last_seen de usuarios que no han hablado', () => {
+    const db = new Database(':memory:');
+    const memory = new UserMemory(db, 100, 7);
+
+    const hace10dias = Date.now() - 10 * 24 * 60 * 60 * 1000;
+    memory.updateEngagement('inactiva', 'hola', hace10dias, { displayName: 'Inactiva' });
+    memory.getUserData('inactiva').engagementPattern.lastSeen = hace10dias;
+    memory.getUserData('inactiva').firstSeen = hace10dias;
+    memory.save();
+
+    const reloaded = new UserMemory(db, 100, 7);
+    reloaded.load();
+    const diasDesdeUltimaVez = (Date.now() - reloaded.getUserData('inactiva').engagementPattern.lastSeen) / 86400000;
+
+    assert.ok(diasDesdeUltimaVez > 9, `last_seen se refrescó: solo ${diasDesdeUltimaVez} días`);
+    db.close();
+  });
+
+  it('cleanup() elimina usuarios inactivos más allá de la ventana', () => {
+    const db = new Database(':memory:');
+    const memory = new UserMemory(db, 100, 7);
+    memory.updateEngagement('inactiva', 'hola', Date.now(), { displayName: 'Inactiva' });
+    memory.getUserData('inactiva').engagementPattern.lastSeen = Date.now() - 10 * 86400000;
+
+    memory.cleanup();
+
+    assert.equal(memory.memories.has('inactiva'), false);
+    db.close();
+  });
 });

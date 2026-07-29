@@ -236,7 +236,9 @@ export class UserMemory {
                 topWords: commonWords,
                 messageCount: eng.totalMessages || 0,
                 avgMessageLength: eng.averageLength || 0,
-                activeHours
+                activeHours,
+                firstSeen: userData.firstSeen ?? null,
+                lastSeen: eng.lastSeen ?? null
             });
         }
     }
