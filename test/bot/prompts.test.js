@@ -1,8 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  spontaneousReplySystemPrompt, streamStartFallback,
-  streamStartSystemPrompt, categoryChangeSystemPrompt, shameSystemPrompt
+  spontaneousReplySystemPrompt, streamStartFallback, shameSystemPrompt
 } from '../../src/bot/prompts.js';
 
 describe('prompts', () => {
@@ -25,7 +24,7 @@ describe('prompts', () => {
 
   it('ningún prompt contiene el canal original hardcodeado', () => {
     const args = { persona: 'P', channel: 'micanal' };
-    for (const fn of [streamStartSystemPrompt, categoryChangeSystemPrompt, shameSystemPrompt]) {
+    for (const fn of [spontaneousReplySystemPrompt, shameSystemPrompt]) {
       assert.ok(!fn(args).toLowerCase().includes('jaimevarecto'), `${fn.name} sigue hardcodeado`);
     }
   });

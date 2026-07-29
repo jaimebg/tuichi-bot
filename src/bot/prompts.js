@@ -4,6 +4,11 @@
  * El texto está en castellano de forma deliberada: la persona del bot (resources/persona.txt)
  * lo está, y mezclar idiomas degrada la calidad de las respuestas. Para adaptar el bot a otro
  * idioma, traducir este módulo y el fichero de persona; no hay capa de i18n.
+ *
+ * Solo viven aquí los prompts que tenían el canal hardcodeado en bot.js. Los system prompts
+ * de inicio de directo y cambio de categoría ("Eres un creador de contenido de Twitch
+ * entusiasta...") nunca mencionaron el canal, así que se quedan inline en bot.js; no los
+ * "completes" aquí sin comprobar antes que hay un sitio real que los use.
  */
 
 export function spontaneousReplySystemPrompt({ persona, channel, contextText = '', maxChars }) {
@@ -12,14 +17,6 @@ export function spontaneousReplySystemPrompt({ persona, channel, contextText = '
 
 export function streamStartFallback({ channelDisplayName, title, game }) {
   return `${channelDisplayName} está ahora en directo ${title} ${game}`;
-}
-
-export function streamStartSystemPrompt({ persona, channel }) {
-  return `${persona}\n\nEstás en el chat del canal ${channel}. Acaba de empezar el directo. Anuncia que el canal está en directo con tu tono habitual, mencionando el título y la categoría.`;
-}
-
-export function categoryChangeSystemPrompt({ persona, channel }) {
-  return `${persona}\n\nEstás en el chat del canal ${channel}. El directo acaba de cambiar de categoría. Comenta el cambio con tu tono habitual.`;
 }
 
 export function shameSystemPrompt({ persona, channel }) {
