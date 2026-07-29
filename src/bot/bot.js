@@ -19,6 +19,7 @@ import { MetricsCollector } from './metricsCollector.js';
 import { HealthServer } from './healthServer.js';
 import { Watchdog } from './watchdog.js';
 import { normalizeWhitespace, clampResponseLength } from '../utils/text.js';
+import { spontaneousReplySystemPrompt, streamStartFallback, shameSystemPrompt } from './prompts.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -388,7 +389,11 @@ export class Bot {
       const contextText = contextParts.length ? `\nContexto: ${contextParts.join(' ')}` : '';
 
       const msgs = [
-        { role: 'system', content: `${this.config.resources.persona}\n\nEstás en el chat del canal jaimevarecto. A veces te metes en la conversación de forma espontánea, con humor y naturalidad, como si fueras un espectador más. No menciones que eres un bot ni que estás respondiendo aleatoriamente. Sé breve y natural.${contextText}\nResponde en no mas de ${this.ai.maxChars} caracteres.` },
+        { role: 'system', content: spontaneousReplySystemPrompt({
+            persona: this.config.resources.persona,
+            channel: this.config.twitch.channel,
+            contextText, maxChars: this.ai.maxChars
+          }) },
         { role: 'user', content: `${alias} acaba de decir en el chat: "${message}"\n\nResponde de forma natural y relevante a lo que dijo, como si fueras parte de la conversación.` }
       ];
 
@@ -581,7 +586,9 @@ export class Bot {
 
   // --- Stream start/category AI messages ---
   async _generateStreamStartMessage(title, game) {
-    if (!this.ai.groqConfig) return `JaimeVaRecto está ahora en directo ${title} ${game}`;
+    if (!this.ai.groqConfig) return streamStartFallback({
+      channelDisplayName: this.config.twitch.channel, title, game
+    });
     const habitualUsers = Array.from(this.userMemory.memories.keys())
       .filter(u => !this.config.engagement.excludedUsers.has(u.toLowerCase())).slice(0, 10).join(', ');
     const prompt = `Genera un mensaje de bienvenida detallado y atractivo para el inicio de un stream de Twitch. Título: "${title}". Categoría: "${game}". Usuarios habituales: ${habitualUsers || 'Ninguno disponible'}. El mensaje debe incluir el titulo y la categoría. Hasta 400 caracteres, entusiasta, único. Responde solo con el mensaje.`;
@@ -594,7 +601,9 @@ export class Bot {
       return clampResponseLength(reply, 400);
     } catch (err) {
       log('warn', `Failed to generate stream start message: ${err.message}`);
-      return `JaimeVaRecto está ahora en directo ${title} ${game}`;
+      return streamStartFallback({
+        channelDisplayName: this.config.twitch.channel, title, game
+      });
     }
   }
 
@@ -702,7 +711,9 @@ export class Bot {
   async _sendShameMessage(candidate) {
     const prompt = `Genera un mensaje largo y sarcástico (150-200 caracteres) fingiendo que te duele profundamente que @${candidate.displayName} no te haga caso.\nUsuario ha estado inactivo ${candidate.inactiveForMinutes} minutos.\nSé muy cómico, melodramático y sarcástico. Responde solo con el mensaje, sin comillas.`;
     const msgs = [
-      { role: 'system', content: `Eres un bot de Twitch en el canal jaimevarecto que es profundamente dramático y sarcástico cuando los usuarios se ignoran. Personalidad: ${this.config.resources.persona}` },
+      { role: 'system', content: shameSystemPrompt({
+          persona: this.config.resources.persona, channel: this.config.twitch.channel
+        }) },
       { role: 'user', content: prompt }
     ];
     try {
