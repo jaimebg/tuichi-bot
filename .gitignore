@@ -3,3 +3,9 @@ node_modules/
 data/
 resources/users/
 docs/superpowers/
+resources/greetings.txt
+resources/goodbyes.txt
+resources/persona.txt
+resources/aliases.txt
+resources/lore.txt
+resources/mediaRewards.json

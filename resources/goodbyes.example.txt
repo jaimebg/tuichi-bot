@@ -1,0 +1,5 @@
+hasta luego {user}, no te pierdas
+se nos va {user}, que pena
+adios {user}, vuelve pronto
+{user} se marcha, el chat no sera lo mismo
+nos vemos {user}

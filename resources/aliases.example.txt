@@ -1,0 +1,4 @@
+# Formato: usuario_de_twitch:Nombre Preferido
+# El bot usará el nombre preferido al dirigirse a esa persona.
+usuario_ejemplo:Nombre Ejemplo
+otra_usuaria:La Jefa

@@ -1,0 +1,5 @@
+hola {user}, bienvenida al directo
+buenas {user}, ponte comoda
+mira quien se ha dignado a aparecer, {user}
+{user} en la sala, esto se pone interesante
+por fin llegas {user}

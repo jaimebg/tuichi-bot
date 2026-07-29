@@ -52,3 +52,29 @@ describe('engagement.excludedUsers', () => {
     assert.ok(!cfg.engagement.excludedUsers.has(''));
   });
 });
+
+describe('resolución de recursos', () => {
+  const baseEnv = {
+    TWITCH_USERNAME: 'mibot', TWITCH_CHANNEL: 'micanal',
+    TWITCH_API_TOKEN: 'x', TWITCH_REFRESH_TOKEN: 'x',
+    TWITCH_CLIENT_ID: 'x', TWITCH_CLIENT_SECRET: 'x', GROQ_API_KEY: 'x'
+  };
+
+  it('construye la config con solo los ficheros .example presentes', () => {
+    // En un clon limpio no existen los resources reales, solo los .example.
+    const cfg = buildConfig({ ...baseEnv });
+    assert.ok(Array.isArray(cfg.resources.greetings));
+    assert.ok(cfg.resources.greetings.length > 0);
+    assert.ok(typeof cfg.resources.persona === 'string');
+    assert.ok(cfg.resources.persona.length > 0);
+    assert.equal(typeof cfg.resources.aliases, 'object');
+  });
+
+  it('config.resources tiene exactamente las claves esperadas', () => {
+    const cfg = buildConfig({ ...baseEnv });
+    assert.deepEqual(
+      Object.keys(cfg.resources).sort(),
+      ['aliases', 'goodbyes', 'greetings', 'lore', 'persona']
+    );
+  });
+});

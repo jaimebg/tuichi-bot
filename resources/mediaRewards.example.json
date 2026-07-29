@@ -1,0 +1,31 @@
+{
+  "rewards": [
+    {
+      "title": "clip de ejemplo",
+      "cost": 100,
+      "is_enabled": true,
+      "action": {
+        "type": "video",
+        "url": "https://example.com/reemplaza-esto-con-tu-video.mp4",
+        "loop": false,
+        "muted": false,
+        "volume": 0.6
+      },
+      "sync_to_twitch": false,
+      "live": false
+    },
+    {
+      "title": "sonido de ejemplo",
+      "cost": 20,
+      "is_enabled": true,
+      "action": {
+        "type": "audio",
+        "url": "https://example.com/reemplaza-esto-con-tu-audio.mp3",
+        "loop": false,
+        "volume": 0.6
+      },
+      "sync_to_twitch": false,
+      "live": false
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { preserveNewlines } from './utils/text.js';
+import { log } from './logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -62,8 +63,7 @@ function loadPersona(filePath) {
 }
 
 function loadLore(filePath) {
-  try { return preserveNewlines(readTextFile(filePath, 'lore')) || ''; }
-  catch (_) { return ''; }
+  return preserveNewlines(readTextFile(filePath, 'lore')) || '';
 }
 
 function loadAliases(filePath) {
@@ -78,14 +78,75 @@ function loadAliases(filePath) {
   return aliases;
 }
 
+/**
+ * Resuelve un recurso: primero el fichero real, luego su variante .example.
+ * @returns {{path: string, isExample: boolean}|null}
+ */
+function resolveResourcePath(dir, filename) {
+  const real = path.join(dir, filename);
+  if (fs.existsSync(real)) return { path: real, isExample: false };
+
+  const ext = path.extname(filename);
+  const example = path.join(dir, `${path.basename(filename, ext)}.example${ext}`);
+  if (fs.existsSync(example)) return { path: example, isExample: true };
+
+  return null;
+}
+
+const RESOURCE_SPECS = [
+  { key: 'greetings', file: 'greetings.txt', required: true, loader: loadLines, fallback: [] },
+  { key: 'goodbyes', file: 'goodbyes.txt', required: true, loader: loadLines, fallback: [] },
+  { key: 'persona', file: 'persona.txt', required: true, loader: loadPersona, fallback: '' },
+  { key: 'lore', file: 'lore.txt', required: false, loader: loadLore, fallback: '' },
+  { key: 'aliases', file: 'aliases.txt', required: false, loader: loadAliases, fallback: {} }
+];
+
+/** Carga todos los recursos, acumulando los obligatorios ausentes en un único error. */
+function loadResources(dir) {
+  const resources = {};
+  const missing = [];
+
+  for (const spec of RESOURCE_SPECS) {
+    const resolved = resolveResourcePath(dir, spec.file);
+
+    if (!resolved) {
+      if (spec.required) missing.push(spec.file);
+      else resources[spec.key] = spec.fallback;
+      continue;
+    }
+
+    if (resolved.isExample) {
+      log('warn', `Usando ${path.basename(resolved.path)} como plantilla. Crea resources/${spec.file} para personalizarlo.`);
+    }
+
+    resources[spec.key] = spec.loader(resolved.path, spec.key);
+  }
+
+  if (missing.length) {
+    throw new Error(
+      `Faltan ficheros de recursos obligatorios en resources/: ${missing.join(', ')}.\n` +
+      `Crea cada uno, o restaura su plantilla .example. Formato de cada fichero: ` +
+      `ver la sección "Resource files" del README.`
+    );
+  }
+
+  return resources;
+}
+
+/** Resuelve mediaRewards.json (real o .example), avisando si cae a la plantilla. */
+function resolveMediaRewardsFile(dir) {
+  const resolved = resolveResourcePath(dir, 'mediaRewards.json');
+  if (!resolved) return path.join(dir, 'mediaRewards.json');
+  if (resolved.isExample) {
+    log('warn', `Usando ${path.basename(resolved.path)} como plantilla. Crea resources/mediaRewards.json para personalizarlo.`);
+  }
+  return resolved.path;
+}
+
 /** Build frozen config from env vars and resource files. */
 export function buildConfig(env = process.env) {
   const vars = validateEnv(env, REQUIRED_ENV);
-  const greetings = loadLines(path.join(RESOURCES_DIR, 'greetings.txt'), 'greetings');
-  const goodbyes = loadLines(path.join(RESOURCES_DIR, 'goodbyes.txt'), 'goodbyes');
-  const persona = loadPersona(path.join(RESOURCES_DIR, 'persona.txt'));
-  const lore = loadLore(path.join(RESOURCES_DIR, 'lore.txt'));
-  const aliases = loadAliases(path.join(RESOURCES_DIR, 'aliases.txt'));
+  const resources = loadResources(RESOURCES_DIR);
   return Object.freeze({
     twitch: Object.freeze({
       username: vars.TWITCH_USERNAME, channel: vars.TWITCH_CHANNEL,
@@ -114,7 +175,7 @@ export function buildConfig(env = process.env) {
       enabled: (env.MEDIA_OVERLAY_ENABLED ?? 'true') !== 'false',
       host: '0.0.0.0', port: Number(env.MEDIA_OVERLAY_PORT) || 8910,
       displayDurationMs: 12000,
-      rewardsFile: path.join(RESOURCES_DIR, 'mediaRewards.json'),
+      rewardsFile: resolveMediaRewardsFile(RESOURCES_DIR),
       keepLastFrame: false
     }),
     channelPoints: Object.freeze({
@@ -138,7 +199,7 @@ export function buildConfig(env = process.env) {
     spontaneousReplyChance: 0.05,
     spontaneousReplyCooldownMs: 5 * 60 * 1000,
     logLevel: env.LOG_LEVEL || 'info',
-    resources: Object.freeze({ greetings, goodbyes, persona, lore, aliases }),
+    resources: Object.freeze(resources),
     paths: Object.freeze({
       root: ROOT, resources: RESOURCES_DIR,
       data: path.join(ROOT, 'data'), db: path.join(ROOT, 'data', 'tuichi.db')
