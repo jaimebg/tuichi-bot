@@ -1,4 +1,5 @@
 import { log } from '../logger.js';
+import { parseSqliteUtc } from '../utils/time.js';
 
 export class UserContextStore {
     constructor(db, maxRecentMessages = 12, maxCachedContexts = 200) {
@@ -16,8 +17,8 @@ export class UserContextStore {
             this.contexts.set(row.user_id, {
                 userKey: row.user_id,
                 displayName: row.display_name,
-                firstSeen: row.first_seen ? new Date(row.first_seen + 'Z').getTime() : null,
-                lastSeen: row.last_seen ? new Date(row.last_seen + 'Z').getTime() : null,
+                firstSeen: parseSqliteUtc(row.first_seen),
+                lastSeen: parseSqliteUtc(row.last_seen),
                 messageCount: row.message_count,
                 averageLength: row.avg_message_length,
                 activeHours: JSON.parse(row.active_hours || '[]'),
