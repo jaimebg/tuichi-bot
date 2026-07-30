@@ -80,9 +80,11 @@ function loadAliases(filePath) {
 
 /**
  * Resuelve un recurso: primero el fichero real, luego su variante .example.
+ * Exportada para poder probar la resolución contra un directorio controlado
+ * por el test, en vez de depender de lo que haya en RESOURCES_DIR.
  * @returns {{path: string, isExample: boolean}|null}
  */
-function resolveResourcePath(dir, filename) {
+export function resolveResourcePath(dir, filename) {
   const real = path.join(dir, filename);
   if (fs.existsSync(real)) return { path: real, isExample: false };
 
@@ -101,8 +103,12 @@ const RESOURCE_SPECS = [
   { key: 'aliases', file: 'aliases.txt', required: false, loader: loadAliases, fallback: {} }
 ];
 
-/** Carga todos los recursos, acumulando los obligatorios ausentes en un único error. */
-function loadResources(dir) {
+/**
+ * Carga todos los recursos, acumulando los obligatorios ausentes en un único error.
+ * Exportada por el mismo motivo que resolveResourcePath: probar contra un
+ * directorio fixture controlado por el test, no contra RESOURCES_DIR real.
+ */
+export function loadResources(dir) {
   const resources = {};
   const missing = [];
 

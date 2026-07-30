@@ -2,11 +2,36 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TwitchApi } from '../src/twitch/twitchApi.js';
+import { resolveResourcePath } from '../src/config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const mediaRewardsPath = path.join(__dirname, '..', 'resources', 'mediaRewards.json');
+const RESOURCES_DIR = path.join(__dirname, '..', 'resources');
 const TWITCH_MAX_REWARDS = 50;
 const TWITCH_MAX_TITLE_LENGTH = 45;
+
+/**
+ * Resuelve mediaRewards.json igual que src/config.js: fichero real primero,
+ * luego su plantilla .example, avisando si cae a la plantilla. Sin esto, un
+ * clon recién hecho que ejecute `npm run add-rewards` antes de crear el
+ * fichero real muere con un ENOENT crudo -- el mismo fallo que este resolver
+ * ya elimina para el resto del bot.
+ */
+function resolveMediaRewardsReadPath() {
+  const resolved = resolveResourcePath(RESOURCES_DIR, 'mediaRewards.json');
+  if (!resolved) return path.join(RESOURCES_DIR, 'mediaRewards.json');
+  if (resolved.isExample) {
+    console.warn(`Usando ${path.basename(resolved.path)} como plantilla. Crea resources/mediaRewards.json para personalizarlo.`);
+  }
+  return resolved.path;
+}
+
+// El fichero se LEE del real o, en su ausencia, de la plantilla .example.
+// Pero SIEMPRE se ESCRIBE en la ruta real: este script anota `live`/`rewardId`
+// en el fichero tras sincronizar con Twitch, y hacerlo contra la plantilla
+// mutaría silenciosamente un fichero versionado en git en vez de materializar
+// el fichero real de quien clona.
+const mediaRewardsReadPath = resolveMediaRewardsReadPath();
+const mediaRewardsWritePath = path.join(RESOURCES_DIR, 'mediaRewards.json');
 
 async function fetchRewards(broadcasterId, token) {
   const res = await fetch(
@@ -77,7 +102,7 @@ async function main() {
     throw new Error('Broadcaster token required. Set TWITCH_BROADCASTER_TOKEN and TWITCH_BROADCASTER_REFRESH_TOKEN in .env');
   }
 
-  const rewardsData = JSON.parse(fs.readFileSync(mediaRewardsPath, 'utf8'));
+  const rewardsData = JSON.parse(fs.readFileSync(mediaRewardsReadPath, 'utf8'));
   const rewards = rewardsData.rewards || [];
 
   // Validate: sync_to_twitch=true cannot exceed limit
@@ -154,7 +179,7 @@ async function main() {
     }
   }
 
-  fs.writeFileSync(mediaRewardsPath, JSON.stringify(rewardsData, null, 2));
+  fs.writeFileSync(mediaRewardsWritePath, JSON.stringify(rewardsData, null, 2));
 
   const liveLocal = rewards.filter(r => r.live).length;
   console.log(`\n--- Summary ---`);
