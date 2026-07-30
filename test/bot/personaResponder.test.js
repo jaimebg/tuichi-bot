@@ -85,8 +85,19 @@ describe('PersonaResponder', () => {
       // add happens after it. That race is a pre-existing property of the original
       // `_respondToMention` in bot.js, not something introduced here, so it is not
       // asserted against.)
-      let resolveFetch;
-      const fetchGroqResponse = () => new Promise((resolve) => { resolveFetch = resolve; });
+      //
+      // Each invocation of fetchGroqResponse gets its OWN resolver, tracked
+      // independently in `fetchResolvers`. This matters: an earlier draft used a
+      // single shared `resolveFetch` variable, so if the guard regressed and a
+      // second call also reached fetchGroqResponse, the second call would silently
+      // clobber `resolveFetch`, leaving the first call's promise unresolvable
+      // forever -- the test would hang instead of failing (and `node --test` runs
+      // with no --test-timeout, so a hang here wedges the whole suite rather than
+      // reporting red). With independent resolvers, a guard regression is caught
+      // by a synchronous, immediate assertion (fetchResolvers.length) rather than
+      // by ever needing to resolve a promise nobody is holding a handle to.
+      const fetchResolvers = [];
+      const fetchGroqResponse = () => new Promise((resolve) => { fetchResolvers.push(resolve); });
       const { sent, responder } = makeResponder({ fetchGroqResponse });
       const args = {
         userKey: 'a', displayName: 'A', message: '@mibot hola',
@@ -98,11 +109,17 @@ describe('PersonaResponder', () => {
       // before the in-flight fetchGroqResponse.
       await new Promise((r) => setTimeout(r, 0));
 
-      await responder.respondToMention(args);
-      assert.equal(sent.length, 0, 'la segunda llamada no debe enviar nada mientras la primera está en curso');
+      const second = responder.respondToMention(args);
+      // Give the second call a chance to run to its own first await (or return
+      // early if the guard blocks it) without depending on real wall-clock time.
+      await new Promise((r) => setTimeout(r, 0));
 
-      resolveFetch('respuesta de prueba');
-      await first;
+      assert.equal(sent.length, 0, 'nada debe haberse enviado mientras la primera sigue en curso');
+      assert.equal(fetchResolvers.length, 1,
+        'la segunda llamada no debe haber llegado a invocar fetchGroqResponse (debe quedar bloqueada por el guard)');
+
+      fetchResolvers[0]('respuesta de prueba');
+      await Promise.all([first, second]);
       assert.equal(sent.length, 1, 'la primera llamada sí debe completarse y enviar una vez resuelta');
     });
 
@@ -247,15 +264,34 @@ describe('PersonaResponder', () => {
       assert.deepEqual(captured, { userKey: 'a', isReplyToBot: true, replyParentLogin: 'mibot' });
     });
 
-    it('no espera (fire-and-forget) la resolución de respondToMention', () => {
-      const { responder } = makeResponder();
-      const start = Date.now();
-      responder.handleMention({
+    it('no espera (fire-and-forget) la resolución de respondToMention', async () => {
+      // A wall-clock assertion here (e.g. `Date.now() - start < 5`) is vacuous:
+      // an async function always returns control to its caller at its own first
+      // internal `await`, whether or not THAT caller happens to `await` the
+      // result -- so timing looks identical whether handleMention fires
+      // respondToMention and forgets it, or is itself `async` and internally
+      // `await`s it (proven empirically: both versions show `sent.length === 0`
+      // immediately and `sent.length === 1` ~10ms later). The real, deterministic
+      // discriminator is the *return value*: a plain synchronous function that
+      // never awaits its own body returns `undefined` on the spot; an `async`
+      // function always returns a thenable/Promise, regardless of whether the
+      // caller uses it.
+      const { sent, responder } = makeResponder();
+      const args = {
         userKey: 'a', displayName: 'A', message: '@mibot hola',
         tags: {}, msg: {}, timestamp: Date.now()
-      });
-      // handleMention returns synchronously without awaiting the async reply.
-      assert.ok(Date.now() - start < 5);
+      };
+
+      const returnValue = responder.handleMention(args);
+
+      assert.equal(returnValue, undefined,
+        'handleMention no debe devolver una promesa (no debe ser async ni esperar a respondToMention)');
+      assert.equal(sent.length, 0, 'nada debe haberse enviado de forma síncrona');
+
+      // The fire-and-forget chain still completes on its own once it's had a
+      // chance to run.
+      await new Promise((r) => setTimeout(r, 10));
+      assert.equal(sent.length, 1, 'el envío fire-and-forget sí debe completarse eventualmente');
     });
   });
 });
