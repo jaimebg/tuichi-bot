@@ -22,7 +22,12 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Forks don't have the VPS_* secrets configured; without this guard, the job would
+    # still run on their `main` pushes and fail red on every commit for no reason.
+    if: |
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push' &&
+      github.repository == 'jaimebg/tuichi-bot'
     steps:
       - uses: actions/checkout@v4
       - name: Deploy to VPS

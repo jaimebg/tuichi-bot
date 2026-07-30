@@ -7,7 +7,7 @@
     "start": "node --env-file=.env src/index.js",
     "add-rewards": "node --env-file=.env scripts/addRewards.js",
     "migrate": "node --env-file=.env scripts/migrateData.js",
-    "test": "node --test test/**/*.test.js",
+    "test": "node --test --test-timeout=20000 test/**/*.test.js",
     "lint": "eslint src/ scripts/ test/"
   },
   "dependencies": {

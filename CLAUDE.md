@@ -14,7 +14,7 @@ Bot
 ├── Database (better-sqlite3, WAL mode)
 ├── TwitchApi (@twurple/auth + @twurple/api)
 ├── ChatHandler (@twurple/chat, EventEmitter: message, join, part, connected)
-├── AiController (Groq chat completions)
+├── AiController (Groq chat completions, circuit breaker)
 ├── Intelligence modules (all take `db` in constructor)
 │   ├── UserMemory
 │   ├── UserContextStore
@@ -29,6 +29,12 @@ Bot
 │   └── SurviveManager
 ├── StreamMonitor (EventEmitter: live, offline, categoryChange)
 ├── ChatterPresence (EventEmitter: join, leave -- polls Helix Get Chatters; drives greetings/goodbyes/present list)
+├── CommandRouter (!ayuda / !status / !saluditos; plain class, called directly from Bot._handleMessage)
+├── Greeter (presence-driven greetings/goodbyes; consumes ChatterPresence's join/leave)
+├── AmbientResponder (single-word echo, spontaneous replies, auto-triggered media)
+├── PersonaResponder (@mention / reply-to-bot AI conversational path)
+├── StreamAnnouncer (AI-generated stream-live / category-change chat messages)
+├── MaintenanceTasks (DB backups, memory checks, inactivity shame message, top-users summary)
 ├── MediaOverlayServer (SSE + static file serving)
 ├── EventSubClient (EventSub WebSocket: channel points + stream events)
 ├── Scheduler (centralized periodic task runner)
@@ -37,10 +43,12 @@ Bot
 └── Watchdog (systemd sd_notify via execFile)
 ```
 
+`CommandRouter`, `Greeter`, `AmbientResponder`, `PersonaResponder`, `StreamAnnouncer`, and `MaintenanceTasks` are the six modules extracted from what used to be inline logic on `Bot`. Unlike `GameController`/`ChatHandler`/`StreamMonitor`/`ChatterPresence`, they are plain classes wired via constructor injection and called directly from `Bot` (no EventEmitter) — see "Events over callbacks" below. Shared system-prompt text that's parameterized by channel/persona (not hardcoded per-module) lives in `src/bot/prompts.js`.
+
 ### Persistence
 
 - SQLite via `better-sqlite3` at `data/tuichi.db` with WAL mode and prepared statements.
-- 8 tables: users, chat_messages, conversation_threads, bot_state, game_history, user_context, user_engagement, user_notes.
+- 8 tables (`src/persistence/database.js`): `schema_version`, `user_memory`, `user_messages`, `recent_chat`, `conversation_threads`, `user_context`, `bot_state`, `game_history`.
 - Database class exposes typed helper namespaces: `db.users.*`, `db.chat.*`, `db.threads.*`, `db.context.*`, `db.state.*`, `db.games.*`.
 - Intelligence modules call `save()`/`load()` against the database; no JSON file I/O.
 
@@ -49,7 +57,8 @@ Bot
 - All credentials come from environment variables loaded via `node --env-file=.env`.
 - Required vars: `TWITCH_USERNAME`, `TWITCH_CHANNEL`, `TWITCH_API_TOKEN`, `TWITCH_REFRESH_TOKEN`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `GROQ_API_KEY`.
 - Never hardcode credentials. Never commit `.env`.
-- Optional vars: `HEALTH_PORT` (default 9090), `HEALTH_API_KEY` (API key for protected endpoints).
+- Optional vars: `HEALTH_PORT` (default 9090), `HEALTH_API_KEY`, `EXCLUDED_USERS`, `LOG_LEVEL` (default `info`), `MEDIA_OVERLAY_ENABLED` (default `true`), `MEDIA_OVERLAY_PORT` (default 8910). The README's "Environment variables" table is the reference; keep the two in sync.
+- `TWITCH_USERNAME` is normalized to lowercase in `src/config.js`. It must be: the mention path compares `@${username}` against a lowercased message, and the reply-parent tag arrives lowercased, so a mixed-case value used to silently disable every @mention and reply with no error at all.
 - Broadcaster token (`TWITCH_BROADCASTER_TOKEN`, `TWITCH_BROADCASTER_REFRESH_TOKEN`): channel owner's token for EventSub (channel points / stream events) and presence. Scopes: `channel:read:redemptions channel:read:subscriptions moderator:read:chatters`. Without it, EventSub and greetings/goodbyes are disabled gracefully. `getChatters` uses this token (the broadcaster is implicitly a moderator).
 
 ### Production (VPS)
@@ -67,21 +76,28 @@ Bot
 - **Logging**: Use `log('level', ...)` from `src/logger.js`. Levels: debug, info, warn, error. Call `setLogLevel()` once at startup.
 - **Text output**: Always normalize with `normalizeWhitespace()` and clamp with `clampResponseLength()` from `src/utils/text.js`.
 - **JSON from AI**: Use `extractJson()` from `src/utils/json.js` to parse AI responses that contain JSON.
-- **Ignored users**: `IGNORED_USERS` set in `src/twitch/constants.js` -- bot skips messages from these.
+- **Excluded users**: `config.engagement.excludedUsers` (a `Set`, built in `src/config.js` from the optional `EXCLUDED_USERS` env var plus a built-in bot list, the bot's own username and the channel owner). It excludes those users from the bot's *proactive* behaviour only -- greetings, goodbyes, the inactivity shame message, presence events and the top-users summary. **It does not filter incoming messages:** their chat is processed normally, including commands and AI replies. The old `IGNORED_USERS` constant and `src/twitch/constants.js` no longer exist.
+- **SQLite timestamps**: read every DB timestamp column through `parseSqliteUtc()` from `src/utils/time.js`. SQLite stores UTC without a zone marker, so `new Date(str)` would parse it as local time; the helper accepts both that format and ISO-8601 with `Z`, and returns `null` -- never `NaN` -- for missing or malformed values. Never hand-roll the conversion (a `+ 'Z'` concatenation used to be the fix and it broke on values that already ended in `Z`).
+- **Date comparisons in SQL**: normalize both sides with `julianday()`. SQLite compares dates as byte strings, so a column holding a mix of the legacy `'YYYY-MM-DD HH:MM:SS'` format and the current ISO-8601 format compares incorrectly -- `'T'` sorts after `' '`. This affects `ORDER BY` as well as `WHERE`.
+- **Resource files**: load them through the spec table in `src/config.js`, which resolves `resources/X` first and falls back to `resources/X.example.*`, warning per file. Required resources that are missing entirely are collected into a single error naming all of them. Never read a resource file directly from a consumer -- `scripts/addRewards.js` does it via the exported `resolveResourcePath` for this reason.
 - **Events over callbacks**: Modules communicate via EventEmitter. ChatHandler emits `message`/`connected` (it also emits `join`/`part`, but Twitch only delivers those for the bot's own account without the membership capability, so they are not used for presence). GameController emits `send`/`sendLong`. StreamMonitor emits `live`/`offline`/`categoryChange`. ChatterPresence emits `join`/`leave` (authoritative presence from Helix Get Chatters) — this is what drives greetings/goodbyes.
 
 ## Development
 
 ```bash
 npm install          # Install dependencies
-npm test             # Run all tests (node:test)
+npm test             # Run all tests (node:test, 20s per-test timeout)
 npm start            # Start bot (requires .env)
-npm run lint         # ESLint
+npm run lint         # ESLint -- must stay at 0 problems
+docker compose up    # Run in a container (see README for the data/ ownership caveat)
 ```
 
 - Tests use Node.js built-in test runner (`node:test`) with `describe`/`it`/`assert`.
 - Test files live in `test/` mirroring `src/` structure.
 - Database tests use in-memory SQLite (`:memory:`).
+- `npm test` carries `--test-timeout=20000` deliberately: without it a hung test wedges CI indefinitely instead of failing.
+- **No test instantiates `Bot`.** A stale reference to moved state therefore ships green. When changing `Bot`'s wiring or extracting from it, construct a real `Bot` (fake credentials, temp DB, media/channelPoints disabled) as a smoke check.
+- When adding a regression test, verify it can actually fail: break the code it guards, confirm the test goes red, then restore. Several tests in this repo's history passed against deliberately broken code before this became the habit.
 
 ## Adding New Games
 
