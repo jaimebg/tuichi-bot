@@ -1,6 +1,11 @@
 node_modules/
 .env
-data/
+# Keep data/ itself tracked (as an empty placeholder) so a fresh clone has an
+# existing directory owned by the cloning user for Docker to bind-mount into.
+# Without this, Docker Engine on Linux auto-creates a missing bind-mount
+# source as root:root, which the container's non-root user can't write to.
+data/*
+!data/.gitkeep
 resources/users/
 docs/superpowers/
 resources/greetings.txt

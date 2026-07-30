@@ -9,6 +9,14 @@ services:
     volumes:
       - ./data:/app/data
       - ./resources:/app/resources
+    # Reports liveness only once the bot is fully up (health server binds its port
+    # last, after Twitch auth and chat connect succeed). A bad-credentials failure
+    # exits the process within `start_period` and shows up as a restart loop, not
+    # an unhealthy status — this check contributes nothing in that case. And even
+    # if the process hangs instead of exiting, plain `docker compose` takes no
+    # action on an `unhealthy` container (only Swarm/k8s do); it just sits marked
+    # unhealthy. Treat this as a status signal for `docker ps`/monitoring, not a
+    # self-healing mechanism.
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
