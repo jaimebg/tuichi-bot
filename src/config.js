@@ -181,7 +181,11 @@ export function buildConfig(env = process.env) {
     groq: Object.freeze({
       apiKey: vars.GROQ_API_KEY,
       baseUrl: 'https://api.groq.com/openai/v1',
-      models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
+      // llama-3.3-70b-versatile was deprecated 2026-07-30 and is decommissioned
+      // 2026-08-16. Groq's recommended replacements are openai/gpt-oss-120b and
+      // qwen/qwen3.6-27b; only the former is usable here — qwen3.6 emits its
+      // <think> block inside message.content, which would go straight to chat.
+      models: ['openai/gpt-oss-120b', 'llama-3.1-8b-instant'],
       temperature: 0.7, timeoutMs: 20000, maxTokens: 1024
     }),
     ai: Object.freeze({

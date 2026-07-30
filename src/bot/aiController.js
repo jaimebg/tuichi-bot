@@ -175,7 +175,7 @@ export class AiController {
     this.metrics?.increment('aiRequests');
     const startTime = Date.now();
     const { baseUrl, apiKey, models, temperature, timeoutMs, maxTokens } = this.groqConfig;
-    const modelList = Array.isArray(models) && models.length ? models : ['llama-3.3-70b-versatile'];
+    const modelList = Array.isArray(models) && models.length ? models : ['openai/gpt-oss-120b'];
     const errors = [];
 
     for (const model of modelList) {
