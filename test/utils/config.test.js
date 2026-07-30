@@ -3,16 +3,29 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { validateEnv, buildConfig, resolveResourcePath, loadResources } from '../../src/config.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 describe('loadPersona preserves newlines', () => {
-  it('buildConfig preserves newlines in persona', () => {
-    const personaPath = path.resolve(__dirname, '../../resources/persona.txt');
-    const raw = fs.readFileSync(personaPath, 'utf8');
-    assert.ok(raw.includes('\n'), 'persona.txt should contain newlines');
+  // This used to read the real resources/persona.txt and assert it contained a
+  // newline. Two problems: the real file is gitignored, so `npm test` failed on
+  // any fresh clone; and it asserted a property of a data file without ever
+  // exercising the loader, so it could not detect preserveNewlines breaking.
+  // Now it loads a fixture whose newline layout we control.
+  it('keeps newlines in the persona text it loads', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tuichi-persona-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'greetings.txt'), 'hola {user}\n');
+      fs.writeFileSync(path.join(dir, 'goodbyes.txt'), 'adios {user}\n');
+      fs.writeFileSync(path.join(dir, 'persona.txt'), 'primera linea\nsegunda linea\n\ncuarta tras hueco\n');
+
+      const resources = loadResources(dir);
+
+      assert.ok(resources.persona.includes('\n'), 'persona lost its newlines');
+      assert.match(resources.persona, /primera linea\nsegunda linea/, 'consecutive lines were joined');
+      assert.match(resources.persona, /\n\n/, 'the blank line separating paragraphs was collapsed');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
