@@ -8,6 +8,7 @@ import { StreamMonitor } from './streamMonitor.js';
 import { ChatterPresence } from './chatterPresence.js';
 import { Greeter } from './greeter.js';
 import { AmbientResponder } from './ambientResponder.js';
+import { PersonaResponder } from './personaResponder.js';
 import { UserMemory } from '../intelligence/userMemory.js';
 import { UserContextStore } from '../intelligence/userContextStore.js';
 import { RecentChatTracker } from '../intelligence/recentChatTracker.js';
@@ -154,6 +155,15 @@ export class Bot {
 
     // Production modules
     this.metrics = new MetricsCollector();
+
+    // @mentions and replies-to-bot: the AI-driven conversational path
+    this.persona = new PersonaResponder({
+      chat: this.chat, ai: this.ai, config,
+      conversationThreads: this.conversationThreads, userMemory: this.userMemory,
+      userContextStore: this.userContextStore, recentChat: this.recentChat,
+      streamMonitor: this.streamMonitor, metrics: this.metrics
+    });
+
     this.scheduler = new Scheduler();
     this.watchdog = new Watchdog();
     this.healthServer = new HealthServer({
@@ -347,82 +357,13 @@ export class Bot {
     if (this.gameController.handleCommand(userKey, displayName, message, present)) return;
 
     // Mention/reply handling -> AI response
-    this._handleMention({ userKey, displayName, message, tags, msg, timestamp });
+    this.persona.handleMention({ userKey, displayName, message, tags, msg, timestamp });
 
     // Spontaneous reply to random messages
     this.ambient.handleSpontaneousReply({ userKey, displayName, message, msg });
 
     // Auto-trigger media based on message content
     this.ambient.handleAutoTriggerMedia(message, displayName);
-  }
-
-  // --- Mention/reply handling ---
-  _handleMention({ userKey, displayName, message, tags, msg, timestamp }) {
-    const mentionToken = `@${this.config.twitch.username}`;
-    const lowerMessage = message.toLowerCase();
-    const hasMention = lowerMessage.includes(mentionToken);
-    const replyParentLogin = (tags?.['reply-parent-user-login'] || '').toLowerCase();
-    const isReplyToBot = replyParentLogin === this.config.twitch.username;
-
-    if (!hasMention && !isReplyToBot) return;
-
-    const mentionContext = { hasMention, isReplyToBot, replyParentLogin };
-    const threadId = this.conversationThreads.getOrCreateThread(userKey, isReplyToBot, replyParentLogin);
-
-    this._respondToMention({ userKey, displayName, message, msg, mentionContext, threadId, timestamp });
-  }
-
-  async _respondToMention({ userKey, displayName, message, msg, mentionContext, threadId, timestamp }) {
-    if (!this.ai.groqConfig) return;
-    if (this.ai.pendingRequests.has(userKey)) return;
-    const ready = await this.ai.waitForCooldown(userKey);
-    if (!ready) return;
-
-    this.ai.pendingRequests.add(userKey);
-    try {
-      // Gather context for AI prompt
-      const streamDuration = Math.floor((Date.now() - (this.streamMonitor.streamStartTime || Date.now())) / (1000 * 60));
-      let streamContext = `Hora actual: ${new Date().toLocaleTimeString('es-ES')}. Stream activo por ${streamDuration} minutos.`;
-      if (this.streamMonitor.currentGame) streamContext += ` Categoría: ${this.streamMonitor.currentGame}.`;
-
-      const recentChat = this.recentChat.getRecentContext(userKey, this.config.twitch.username);
-      const userSummary = this.userMemory.getUserSummary(userKey);
-      const userProfile = this.userContextStore.getContextSnapshot(userKey);
-
-      // Thread-based conversation history as separate API messages (no text duplicate)
-      const conversationHistory = this.conversationThreads.getThread(threadId, 6)
-        .filter(m => m.timestamp > Date.now() - 10 * 60 * 1000)
-        .map(m => ({ role: m.role, content: m.content }));
-
-      const chatMessages = this.ai.buildChatMessages({
-        userKey, displayName, message, mentionContext,
-        streamContext, recentChat, userSummary, userProfile,
-        conversationHistory
-      });
-
-      let aiReply = await this.ai.fetchGroqResponse(chatMessages);
-      if (aiReply === null) {
-        // Circuit breaker open
-        await this.chat.sendMessage('Estoy teniendo problemas para pensar, dame un momento', msg);
-        return;
-      }
-      let finalMessage = clampResponseLength(aiReply, this.ai.maxChars);
-      if (!finalMessage || !finalMessage.trim()) {
-        finalMessage = 'lo siento, tuve un problema para procesar tu pregunta';
-      }
-
-      // @twurple reply uses { replyTo: msg } — pass the raw msg object
-      await this.chat.sendMessage(finalMessage, msg);
-
-      this.conversationThreads.addMessage(threadId, 'user', message, timestamp);
-      this.conversationThreads.addMessage(threadId, 'assistant', finalMessage, Date.now());
-      this.ai._recordResponse(userKey);
-      log('debug', `Replied to ${displayName} via Groq.`);
-    } catch (err) {
-      log('warn', `Failed to reply to ${displayName}: ${err.message}`);
-    } finally {
-      this.ai.pendingRequests.delete(userKey);
-    }
   }
 
   // --- Channel point redemptions ---
