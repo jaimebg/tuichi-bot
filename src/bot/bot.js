@@ -7,6 +7,7 @@ import { GameController } from './gameController.js';
 import { StreamMonitor } from './streamMonitor.js';
 import { ChatterPresence } from './chatterPresence.js';
 import { Greeter } from './greeter.js';
+import { AmbientResponder } from './ambientResponder.js';
 import { UserMemory } from '../intelligence/userMemory.js';
 import { UserContextStore } from '../intelligence/userContextStore.js';
 import { RecentChatTracker } from '../intelligence/recentChatTracker.js';
@@ -20,7 +21,7 @@ import { MetricsCollector } from './metricsCollector.js';
 import { HealthServer } from './healthServer.js';
 import { Watchdog } from './watchdog.js';
 import { clampResponseLength } from '../utils/text.js';
-import { spontaneousReplySystemPrompt, streamStartFallback, shameSystemPrompt } from './prompts.js';
+import { streamStartFallback, shameSystemPrompt } from './prompts.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -69,7 +70,6 @@ export class Bot {
     this.conversationThreads = new ConversationThreads(this.db, config.intelligence.conversationThreadLimit);
     this.messageLogger = new MessageLogger();
     this.inactivityTracker = new InactivityTracker(15, 90000, config.engagement.excludedUsers);
-    this.lastSpontaneousReplyAt = 0;
 
     // Games (AI callback injected, not imported)
     this.gameController = new GameController({
@@ -85,6 +85,13 @@ export class Bot {
 
     // Media Overlay
     this.mediaOverlay = config.media.enabled ? new MediaOverlayServer(config.media) : null;
+
+    // Ambient (unprompted) reactions: single-word echo, spontaneous replies, auto-triggered media
+    this.ambient = new AmbientResponder({
+      chat: this.chat, ai: this.ai, config,
+      recentChat: this.recentChat, userMemory: this.userMemory,
+      streamMonitor: this.streamMonitor, mediaOverlay: this.mediaOverlay
+    });
 
     // EventSub (shared WebSocket for channel points + stream events)
     this.eventSubClient = config.channelPoints.enabled ? new EventSubClient({
@@ -333,7 +340,7 @@ export class Bot {
     if (detailed) this.userContextStore.updateFromMemory(detailed);
 
     // Single-word echo
-    this._handleSingleWordEcho(message, tags);
+    this.ambient.handleSingleWordEcho(message, tags);
 
     // Game commands
     const present = this.chatterPresence?.getPresentList() ?? [];
@@ -343,104 +350,10 @@ export class Bot {
     this._handleMention({ userKey, displayName, message, tags, msg, timestamp });
 
     // Spontaneous reply to random messages
-    this._handleSpontaneousReply({ userKey, displayName, message, msg });
+    this.ambient.handleSpontaneousReply({ userKey, displayName, message, msg });
 
     // Auto-trigger media based on message content
-    this._handleAutoTriggerMedia(message, displayName);
-  }
-
-  // --- Single-word echo ---
-  _handleSingleWordEcho(message, tags) {
-    if (!message || message.includes(' ')) return;
-    if (this.config.singleWordEchoChance <= 0) return;
-    if (Math.random() >= this.config.singleWordEchoChance) return;
-    const firstChar = message.charAt(0);
-    if (firstChar === '@' || firstChar === '!') return;
-    const replyParentLogin = (tags?.['reply-parent-user-login'] || '').toLowerCase();
-    if (replyParentLogin === this.config.twitch.username) return;
-    const delay = this.config.singleWordEchoDelayMs || 0;
-    const send = () => this.chat.sendMessage(message).catch(err =>
-      log('warn', `Failed to repeat single-word message: ${err.message}`)
-    );
-    if (delay > 0) setTimeout(send, delay);
-    else send();
-  }
-
-  // --- Spontaneous reply to random chat messages ---
-  async _handleSpontaneousReply({ userKey, displayName, message, msg }) {
-    if (!this.ai.groqConfig) return;
-    if (this.config.spontaneousReplyChance <= 0) return;
-    const firstChar = message.charAt(0);
-    if (firstChar === '!' || firstChar === '@') return;
-    const mentionToken = `@${this.config.twitch.username}`;
-    if (message.toLowerCase().includes(mentionToken)) return;
-    const now = Date.now();
-    if (now - this.lastSpontaneousReplyAt < this.config.spontaneousReplyCooldownMs) return;
-    if (Math.random() >= this.config.spontaneousReplyChance) return;
-    if (this.ai.pendingRequests.has(`spontaneous:${userKey}`)) return;
-
-    this.ai.pendingRequests.add(`spontaneous:${userKey}`);
-    try {
-      const alias = this.ai._getAlias(userKey, displayName);
-      const recentChat = this.recentChat.getRecentContext(userKey, this.config.twitch.username);
-      const userSummary = this.userMemory.getUserSummary(userKey);
-
-      let streamContext = '';
-      if (this.streamMonitor.currentGame) streamContext = `Categoría actual: ${this.streamMonitor.currentGame}.`;
-
-      const contextParts = [];
-      if (streamContext) contextParts.push(streamContext);
-      if (recentChat) contextParts.push(`Chat reciente: ${recentChat}`);
-      if (userSummary?.personality?.length) contextParts.push(`Personalidad de ${alias}: ${userSummary.personality.join(', ')}`);
-      if (userSummary?.themes?.length) contextParts.push(`Temas de interés de ${alias}: ${userSummary.themes.join(', ')}`);
-
-      const contextText = contextParts.length ? `\nContexto: ${contextParts.join(' ')}` : '';
-
-      const msgs = [
-        { role: 'system', content: spontaneousReplySystemPrompt({
-            persona: this.config.resources.persona,
-            channel: this.config.twitch.channel,
-            contextText, maxChars: this.ai.maxChars
-          }) },
-        { role: 'user', content: `${alias} acaba de decir en el chat: "${message}"\n\nResponde de forma natural y relevante a lo que dijo, como si fueras parte de la conversación.` }
-      ];
-
-      const reply = await this.ai.fetchGroqResponse(msgs);
-      if (reply === null) return;
-      const finalMessage = clampResponseLength(reply, this.ai.maxChars);
-      if (!finalMessage?.trim()) return;
-
-      await this.chat.sendMessage(finalMessage, msg);
-      this.lastSpontaneousReplyAt = Date.now();
-      this.ai._recordResponse(userKey);
-      log('debug', `Spontaneous reply to ${displayName}: ${finalMessage.slice(0, 50)}...`);
-    } catch (err) {
-      log('warn', `Failed spontaneous reply to ${displayName}: ${err.message}`);
-    } finally {
-      this.ai.pendingRequests.delete(`spontaneous:${userKey}`);
-    }
-  }
-
-  // --- Auto-trigger media ---
-  _handleAutoTriggerMedia(message, displayName) {
-    if (!this.mediaOverlay) return;
-    const lowerMessage = message.toLowerCase();
-    const messageWords = lowerMessage.split(/\s+/).filter(w => w.length > 3);
-    const matchingTitles = new Set();
-    const allTitles = Object.keys(this.mediaOverlay.rewardNameMap || {});
-    for (const word of messageWords) {
-      for (const title of allTitles) {
-        const reward = this.mediaOverlay.rewardNameMap[title];
-        if (reward && (reward.type === 'video' || reward.type === 'audio') && title.toLowerCase().includes(word)) {
-          matchingTitles.add(title);
-        }
-      }
-    }
-    const arr = Array.from(matchingTitles);
-    if (arr.length > 0 && Math.random() < (this.config.intelligence.autoTriggerChance ?? 0.1)) {
-      const selected = arr[Math.floor(Math.random() * arr.length)];
-      this.mediaOverlay.triggerByTitle(selected, displayName);
-    }
+    this.ambient.handleAutoTriggerMedia(message, displayName);
   }
 
   // --- Mention/reply handling ---
