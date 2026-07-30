@@ -21,11 +21,8 @@ import { Scheduler } from './scheduler.js';
 import { MetricsCollector } from './metricsCollector.js';
 import { HealthServer } from './healthServer.js';
 import { Watchdog } from './watchdog.js';
-import { clampResponseLength } from '../utils/text.js';
-import { shameSystemPrompt } from './prompts.js';
 import { StreamAnnouncer } from './streamAnnouncer.js';
-import fs from 'node:fs';
-import path from 'node:path';
+import { MaintenanceTasks } from './maintenanceTasks.js';
 
 
 export class Bot {
@@ -171,6 +168,17 @@ export class Bot {
       streamMonitor: this.streamMonitor, metrics: this.metrics
     });
 
+    // Periodic/maintenance work: DB backups, memory checks, inactivity shame message,
+    // top-users summary. saveAll is injected as a callback since it lives on Bot and
+    // touches modules outside this class's scope (see maintenanceTasks.js docblock).
+    this.maintenance = new MaintenanceTasks({
+      db: this.db, chat: this.chat, ai: this.ai, config,
+      messageLogger: this.messageLogger, userMemory: this.userMemory,
+      userContextStore: this.userContextStore, inactivityTracker: this.inactivityTracker,
+      chatterPresence: this.chatterPresence, greeter: this.greeter,
+      saveAll: () => this._saveAll()
+    });
+
     this.scheduler = new Scheduler();
     this.watchdog = new Watchdog();
     this.healthServer = new HealthServer({
@@ -222,7 +230,7 @@ export class Bot {
     this.streamMonitor.on('offline', async () => {
       try {
         await this.chat.sendMessage('El stream se ha desconectado. Venga guapa.');
-        const topMsg = this._getTopUsersMessage(10);
+        const topMsg = this.maintenance.getTopUsersMessage(10);
         if (topMsg) await this.chat.sendMessage(topMsg);
       } catch (err) { log('warn', `Failed to handle stream offline event: ${err.message}`); }
     });
@@ -263,7 +271,7 @@ export class Bot {
 
     // Register scheduled tasks
     this.scheduler.register('auto-save', () => this._saveAll(), 5 * 60_000);
-    this.scheduler.register('inactivity-check', () => this._checkInactivity(), 120_000);
+    this.scheduler.register('inactivity-check', () => this.maintenance.checkInactivity(), 120_000);
     // Ping the systemd watchdog unconditionally: this callback firing proves the
     // event loop is alive, which is all the watchdog is meant to detect. Chat
     // silence is NOT a liveness failure and must never trigger a restart.
@@ -273,8 +281,8 @@ export class Bot {
         log('warn', 'Chat connection appears unhealthy (no recent messages)');
       }
     }, 60_000);
-    this.scheduler.register('memory-check', () => this._checkMemory(), 5 * 60_000);
-    this.scheduler.register('db-backup', () => this._backupDb(), 86400_000);
+    this.scheduler.register('memory-check', () => this.maintenance.checkMemory(), 5 * 60_000);
+    this.scheduler.register('db-backup', () => this.maintenance.backupDb(), 86400_000);
     if (this.chatterPresence) {
       this.scheduler.register('presence-poll', () => this.chatterPresence.poll(),
         this.config.presence.pollIntervalMs, { runImmediately: true });
@@ -426,80 +434,6 @@ export class Bot {
     const gu = this.db.state.get('greetedUsers');
     if (gu) {
       try { this.greeter.loadGreeted(JSON.parse(gu)); } catch { /* ignore corrupt data */ }
-    }
-  }
-  _getTopUsersMessage(limit) {
-    const top = this.messageLogger.getTopUsers(limit);
-    if (!top.length) return null;
-    return `Top ${top.length} ridículas más activas hoy: ${top.map(u => `@${u.displayName} (${u.messageCount} mensajes)`).join(', ')}`;
-  }
-  async _checkInactivity() {
-    const candidate = this.inactivityTracker.getShameCandidate();
-    if (candidate && this.ai.groqConfig) {
-      await this._sendShameMessage(candidate);
-    }
-  }
-
-  _checkMemory() {
-    const mem = process.memoryUsage();
-    const heapMB = Math.round(mem.heapUsed / 1024 / 1024);
-    // RSS is what systemd's MemoryMax (768M) enforces, and it includes native
-    // memory (better-sqlite3, ws buffers) that heapUsed misses. Keep margin below it.
-    const rssMB = Math.round(mem.rss / 1024 / 1024);
-    if (heapMB > 600 || rssMB > 680) {
-      log('error', `Memory critical (heap ${heapMB}MB, rss ${rssMB}MB) — initiating graceful restart`);
-      this._saveAll().then(() => process.exit(1)).catch(() => process.exit(1));
-    } else if (heapMB > 400 || rssMB > 560) {
-      log('warn', `Memory high: heap ${heapMB}MB rss ${rssMB}MB | ` +
-        `present:${this.chatterPresence?.getPresentCount() ?? 0} ` +
-        `contexts:${this.userContextStore.contexts.size} ` +
-        `memories:${this.userMemory.memories.size} ` +
-        `inactivity:${this.inactivityTracker.userLastActivity.size} ` +
-        `cooldowns:${this.ai.userLastResponseAt.size} ` +
-        `msgLogger:${this.messageLogger.userMessageCount.size} ` +
-        `greetedUsers:${this.greeter.greetedUsers.size}`
-      );
-    }
-  }
-
-  async _backupDb() {
-    try {
-      const backupDir = path.join(this.config.paths.data, 'backups');
-      fs.mkdirSync(backupDir, { recursive: true });
-      const dest = path.join(backupDir, `tuichi-${new Date().toISOString().slice(0, 10)}.db`);
-      await this.db.raw.backup(dest);
-      // Prune backups older than 7 days
-      const cutoff = Date.now() - 7 * 86400_000;
-      for (const file of fs.readdirSync(backupDir)) {
-        const filePath = path.join(backupDir, file);
-        const stat = fs.statSync(filePath);
-        if (stat.mtimeMs < cutoff) fs.unlinkSync(filePath);
-      }
-      log('info', `Database backed up to ${dest}`);
-    } catch (err) {
-      log('error', `Database backup failed: ${err.message}`);
-    }
-  }
-
-  // --- Inactivity shame message ---
-  async _sendShameMessage(candidate) {
-    const prompt = `Genera un mensaje largo y sarcástico (150-200 caracteres) fingiendo que te duele profundamente que @${candidate.displayName} no te haga caso.\nUsuario ha estado inactivo ${candidate.inactiveForMinutes} minutos.\nSé muy cómico, melodramático y sarcástico. Responde solo con el mensaje, sin comillas.`;
-    const msgs = [
-      { role: 'system', content: shameSystemPrompt({
-          persona: this.config.resources.persona, channel: this.config.twitch.channel
-        }) },
-      { role: 'user', content: prompt }
-    ];
-    try {
-      const reply = await this.ai.fetchGroqResponse(msgs);
-      const finalMessage = clampResponseLength(reply, 200);
-      if (finalMessage) {
-        await this.chat.sendMessage(finalMessage);
-        this.inactivityTracker.recordShame(candidate.userKey);
-        log('debug', `Sent shame message to ${candidate.displayName}`);
-      }
-    } catch (err) {
-      log('warn', `Failed to generate shame message: ${err.message}`);
     }
   }
 }
