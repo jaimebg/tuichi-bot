@@ -15,7 +15,7 @@ Bot
 ├── TwitchApi (@twurple/auth + @twurple/api)
 ├── ChatHandler (@twurple/chat, EventEmitter: message, join, part, connected)
 ├── AiController (Groq chat completions, circuit breaker)
-├── Intelligence modules (all take `db` in constructor)
+├── Intelligence modules (most take `db` in constructor -- `MessageLogger` and `InactivityTracker` don't)
 │   ├── UserMemory
 │   ├── UserContextStore
 │   ├── RecentChatTracker
@@ -50,7 +50,7 @@ Bot
 - SQLite via `better-sqlite3` at `data/tuichi.db` with WAL mode and prepared statements.
 - 8 tables (`src/persistence/database.js`): `schema_version`, `user_memory`, `user_messages`, `recent_chat`, `conversation_threads`, `user_context`, `bot_state`, `game_history`.
 - Database class exposes typed helper namespaces: `db.users.*`, `db.chat.*`, `db.threads.*`, `db.context.*`, `db.state.*`, `db.games.*`.
-- Intelligence modules call `save()`/`load()` against the database; no JSON file I/O.
+- `UserMemory`, `RecentChatTracker`, and `ConversationThreads` call `save()`/`load()` against the database; `UserContextStore` instead uses `flush()`/`syncFromUserMemory()`; `MessageLogger` and `InactivityTracker` hold no `db` reference and persist nothing. No JSON file I/O anywhere.
 
 ### Credentials
 
@@ -59,7 +59,7 @@ Bot
 - Never hardcode credentials. Never commit `.env`.
 - Optional vars: `HEALTH_PORT` (default 9090), `HEALTH_API_KEY`, `EXCLUDED_USERS`, `LOG_LEVEL` (default `info`), `MEDIA_OVERLAY_ENABLED` (default `true`), `MEDIA_OVERLAY_PORT` (default 8910). The README's "Environment variables" table is the reference; keep the two in sync.
 - `TWITCH_USERNAME` is normalized to lowercase in `src/config.js`. It must be: the mention path compares `@${username}` against a lowercased message, and the reply-parent tag arrives lowercased, so a mixed-case value used to silently disable every @mention and reply with no error at all.
-- Broadcaster token (`TWITCH_BROADCASTER_TOKEN`, `TWITCH_BROADCASTER_REFRESH_TOKEN`): channel owner's token for EventSub (channel points / stream events) and presence. Scopes: `channel:read:redemptions channel:read:subscriptions moderator:read:chatters`. Without it, EventSub and greetings/goodbyes are disabled gracefully. `getChatters` uses this token (the broadcaster is implicitly a moderator).
+- Broadcaster token (`TWITCH_BROADCASTER_TOKEN`, `TWITCH_BROADCASTER_REFRESH_TOKEN`): channel owner's token for EventSub (channel points / stream events) and presence. Scopes: `channel:read:redemptions channel:read:subscriptions moderator:read:chatters`. Without it, EventSub and greetings/goodbyes are disabled gracefully, and `!survive` can never gather participants either -- it reads its present-users list from `ChatterPresence` (`bot.js`'s `this.chatterPresence?.getPresentList() ?? []`), which is `null` without this token, so the game always reports nobody connected. `getChatters` uses this token (the broadcaster is implicitly a moderator).
 
 ### Production (VPS)
 
@@ -103,7 +103,7 @@ docker compose up    # Run in a container (see README for the data/ ownership ca
 
 1. Create `src/games/{name}Manager.js` following existing manager pattern (constructor takes no external deps, public methods: `start`, `record`, `end`, `cancel`, `getStatus`)
 2. Import and instantiate in `GameController` constructor
-3. Add command routing in `GameController._setupCommandRoutes()`
+3. Add command routing in `GameController.handleCommand()`
 4. Add cleanup in `GameController.cancelAll()`
 5. Update README command reference
 

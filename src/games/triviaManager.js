@@ -13,7 +13,7 @@ export class TriviaManager {
 
     /**
      * Start a trivia question
-     * @param {string} category - Category for the question (e.g., "Pentesilea", "Gaming", "General")
+     * @param {string} category - Category for the question (e.g., "Movies", "Gaming", "General")
      * @param {number} durationMs - How long to answer (default 30 seconds)
      * @param {Function} fetchGroqResponse - Function to call Groq API
      * @returns {Promise<object|null>} - Trivia state or null if failed

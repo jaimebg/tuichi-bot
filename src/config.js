@@ -17,8 +17,12 @@ const REQUIRED_ENV = [
 const DEFAULT_EXCLUDED_BOTS = ['streamelements', 'nightbot', 'streamlabs', 'moobot', 'fossabot'];
 
 /**
- * Usuarios excluidos de las interacciones proactivas del bot: saludos, mensajes de inactividad
- * y listado de top users. NO filtra mensajes entrantes: sus mensajes se procesan con normalidad.
+ * Usuarios excluidos de las interacciones proactivas del bot: saludos/despedidas de presencia
+ * (greeter.js), el aviso de inactividad (inactivityTracker.js), quién cuenta como "saludable"
+ * en el tracking de presencia (chatterPresence.js) y la mención de usuarios habituales en el
+ * anuncio de inicio de stream (streamAnnouncer.js). NO filtra mensajes entrantes (se procesan
+ * con normalidad) ni los listados de top users (el resumen al offline en bot.js o
+ * GET /api/users en healthServer.js), que no tienen en cuenta este set.
  */
 function buildExcludedUsers(env, botUsername, channel) {
   const extra = (env.EXCLUDED_USERS || '')
@@ -160,7 +164,14 @@ export function buildConfig(env = process.env) {
       // consumer has to remember to normalize it again. See Task 25: an
       // unnormalized mixed-case TWITCH_USERNAME silently broke the entire
       // @mention/reply path with zero errors logged.
-      username: vars.TWITCH_USERNAME.toLowerCase(), channel: vars.TWITCH_CHANNEL,
+      // channel gets the same treatment: lowercased and stripped of a leading
+      // '#' here, once, since the raw login reaches Helix lookups
+      // (getUserByName/getChatters) downstream, which reject a '#'-prefixed
+      // login. A bare "TWITCH_CHANNEL=#mychannel" used to silently break
+      // stream detection, EventSub and presence tracking with no error, just
+      // a "Stream check failed" warning.
+      username: vars.TWITCH_USERNAME.toLowerCase(),
+      channel: vars.TWITCH_CHANNEL.toLowerCase().replace(/^#/, ''),
       apiToken: vars.TWITCH_API_TOKEN,
       refreshToken: vars.TWITCH_REFRESH_TOKEN,
       clientId: vars.TWITCH_CLIENT_ID, clientSecret: vars.TWITCH_CLIENT_SECRET,

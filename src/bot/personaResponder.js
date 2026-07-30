@@ -9,7 +9,11 @@ import { clampResponseLength } from '../utils/text.js';
  *
  * `ai.pendingRequests` is a shared Set injected via the AiController instance —
  * it's the same live object used by AmbientResponder's spontaneous-reply path,
- * so concurrent-request protection holds across both callers.
+ * but the two callers key into it with separate keyspaces: this module guards
+ * on the bare `userKey`, while AmbientResponder guards on `spontaneous:${userKey}`.
+ * The shared Set does NOT provide concurrent-request protection across both
+ * callers — a reply-to-bot message whose text doesn't also contain the mention
+ * token can pass both guards at once and fire both AI paths concurrently.
  */
 export class PersonaResponder {
   constructor({ chat, ai, config, conversationThreads, userMemory, userContextStore, recentChat, streamMonitor, metrics }) {

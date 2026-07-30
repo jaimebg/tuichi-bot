@@ -64,7 +64,7 @@ graph TD
     Presence -.->|join / leave| Greeter
 ```
 
-`ChatterPresence` and `EventSubClient`'s channel-points/stream-event subscriptions both depend on `TWITCH_BROADCASTER_TOKEN` being set; without it, presence-based greetings/goodbyes and channel-point redemptions are disabled gracefully (everything else still works).
+`ChatterPresence` and `EventSubClient`'s channel-points/stream-event subscriptions both depend on `TWITCH_BROADCASTER_TOKEN` being set; without it, presence-based greetings/goodbyes and channel-point redemptions are disabled gracefully, and `!survive` can't work either (it draws its participant list from `ChatterPresence`, so with no token it always sees zero people present) — everything else still works.
 
 ## Getting started
 
@@ -107,8 +107,8 @@ npm start
 **Broadcaster token** (`TWITCH_BROADCASTER_TOKEN`/`TWITCH_BROADCASTER_REFRESH_TOKEN`) — optional, but required for channel points, stream EventSub, and presence-based greetings/goodbyes. Authorize this on the **channel owner's** account.
 - Required scopes: `channel:read:redemptions channel:read:subscriptions moderator:read:chatters`
 - `moderator:read:chatters` powers presence (greetings/goodbyes via Get Chatters). The broadcaster is implicitly a moderator of their own channel.
-- If you previously authorized this token **without** `moderator:read:chatters`, you must re-authorize it — otherwise the bot logs `ChatterPresence disabled: Get Chatters unauthorized` and greetings/goodbyes stay off (everything else keeps working).
-- If this token is absent entirely, the bot logs `Presence tracking disabled` at startup and runs without greetings, goodbyes, and channel-point redemptions.
+- If you previously authorized this token **without** `moderator:read:chatters`, you must re-authorize it — otherwise the bot logs `ChatterPresence disabled: Get Chatters unauthorized`, greetings/goodbyes stay off, and `!survive` can never find any participants (everything else keeps working).
+- If this token is absent entirely, the bot logs `Presence tracking disabled` at startup and runs without greetings, goodbyes, channel-point redemptions, and a working `!survive` game.
 
 **Groq API key** (`GROQ_API_KEY`)
 - Create a key from the Groq console: https://console.groq.com/keys
@@ -136,7 +136,7 @@ All in `resources/`. `src/config.js` resolves each one by looking for the real f
 | `!poll <pregunta> \| <opción1> \| <opción2> [\| <segundos>]` | Everyone | Starts a poll; vote with `!1`, `!2`, etc. Duration defaults to 60s if omitted, otherwise clamped to 10–300s |
 | `!trivia [tema]` | Everyone | AI-generated 4-option trivia; answer with `!a`/`!b`/`!c`/`!d`; 30s timer |
 | `!aventura [tema]` | Everyone | Starts an AI-narrated interactive adventure with up to 4 options per round; vote with `!1`–`!4`; 60s per voting round, up to 4 rounds before an AI-generated ending |
-| `!survive` | Everyone | Starts (or joins) a battle-royale elimination game; needs 2+ people present in chat; 30s per round |
+| `!survive` | Everyone | Starts (or joins) a battle-royale elimination game; needs 2+ people present in chat; 30s per round. **Requires `TWITCH_BROADCASTER_TOKEN`** — without it, the present-users list is always empty and the game can never start |
 | `!1` `!2` `!3` `!4` | Everyone | Votes during an active poll or adventure |
 | `!a` `!b` `!c` `!d` | Everyone | Answers during an active trivia |
 | `@<bot_username> <message>`, or a reply to the bot | Everyone | Triggers an AI (Groq) conversational response |
@@ -285,7 +285,7 @@ The SQLite database is backed up automatically:
 | `GROQ_API_KEY` | Yes | — | Groq API key for AI responses |
 | `TWITCH_BROADCASTER_TOKEN` | No | — | Broadcaster account OAuth access token. Enables channel points, stream EventSub, and presence-based greetings/goodbyes. |
 | `TWITCH_BROADCASTER_REFRESH_TOKEN` | No | — | Broadcaster account OAuth refresh token (paired with the above) |
-| `EXCLUDED_USERS` | No | — | Comma-separated extra usernames excluded from greetings, goodbyes, the inactivity shame message, presence events, and the habitual-users list in the stream-start announcement. The bot always excludes itself, the channel owner, and a built-in bot list (`streamelements`, `nightbot`, `streamlabs`, `moobot`, `fossabot`) — this variable only adds to that list. It does **not** filter incoming chat messages, which are processed normally for every user, and it does **not** filter the `!status` top-users summary. |
+| `EXCLUDED_USERS` | No | — | Comma-separated extra usernames excluded from greetings, goodbyes, the inactivity shame message, presence events, and the habitual-users list in the stream-start announcement. The bot always excludes itself, the channel owner, and a built-in bot list (`streamelements`, `nightbot`, `streamlabs`, `moobot`, `fossabot`) — this variable only adds to that list. It does **not** filter incoming chat messages, which are processed normally for every user, and it does **not** filter the top-users listings (the stream-offline wrap-up message, or `GET /api/users`). |
 | `MEDIA_OVERLAY_ENABLED` | No | `true` | Set to `false` to disable the media overlay server |
 | `MEDIA_OVERLAY_PORT` | No | `8910` | Port for the SSE overlay server |
 | `HEALTH_PORT` | No | `9090` | Port for the health/metrics/REST server |

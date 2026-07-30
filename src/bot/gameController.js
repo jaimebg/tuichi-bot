@@ -181,7 +181,7 @@ export class GameController extends EventEmitter {
 
   async _handleAdventure(userKey, displayName, message) {
     const parts = message.split(/\s+/).slice(1);
-    const theme = parts.length === 0 ? 'una aventura de las Pentis' : parts.join(' ');
+    const theme = parts.length === 0 ? 'una aventura épica' : parts.join(' ');
     if (this.adventureManager.isActive()) { this._send('❌ Ya hay una aventura en curso. ¡Votad con !1, !2, etc!'); return; }
     const result = await this.adventureManager.startAdventure(theme, this.generateGameContent);
     if (!result) { this._send('❌ No pude iniciar la aventura. Intenta más tarde.'); return; }
