@@ -76,7 +76,7 @@ Bot
 - **Logging**: Use `log('level', ...)` from `src/logger.js`. Levels: debug, info, warn, error. Call `setLogLevel()` once at startup.
 - **Text output**: Always normalize with `normalizeWhitespace()` and clamp with `clampResponseLength()` from `src/utils/text.js`.
 - **JSON from AI**: Use `extractJson()` from `src/utils/json.js` to parse AI responses that contain JSON.
-- **Excluded users**: `config.engagement.excludedUsers` (a `Set`, built in `src/config.js` from the optional `EXCLUDED_USERS` env var plus a built-in bot list, the bot's own username and the channel owner). It excludes those users from the bot's *proactive* behaviour only -- greetings, goodbyes, the inactivity shame message, presence events and the top-users summary. **It does not filter incoming messages:** their chat is processed normally, including commands and AI replies. The old `IGNORED_USERS` constant and `src/twitch/constants.js` no longer exist.
+- **Excluded users**: `config.engagement.excludedUsers` (a `Set`, built in `src/config.js` from the optional `EXCLUDED_USERS` env var plus a built-in bot list, the bot's own username and the channel owner). The exact consumers, and nothing else: greetings and goodbyes (`greeter.js`), the inactivity shame candidate list (`InactivityTracker`), presence events (`ChatterPresence`), and the habitual-users list in the stream-start announcement (`streamAnnouncer.js`). **It does not filter incoming messages** -- that chat is processed normally, commands and AI replies included -- **and it does not filter the top-users summary**: `MaintenanceTasks.getTopUsersMessage()` reads `MessageLogger.getTopUsers()`, which has no exclusion concept, and `logMessage` is called for every message before any exclusion check. Don't assume this set is consulted anywhere it isn't; grep for `excludedUsers` before claiming otherwise. The old `IGNORED_USERS` constant and `src/twitch/constants.js` no longer exist.
 - **SQLite timestamps**: read every DB timestamp column through `parseSqliteUtc()` from `src/utils/time.js`. SQLite stores UTC without a zone marker, so `new Date(str)` would parse it as local time; the helper accepts both that format and ISO-8601 with `Z`, and returns `null` -- never `NaN` -- for missing or malformed values. Never hand-roll the conversion (a `+ 'Z'` concatenation used to be the fix and it broke on values that already ended in `Z`).
 - **Date comparisons in SQL**: normalize both sides with `julianday()`. SQLite compares dates as byte strings, so a column holding a mix of the legacy `'YYYY-MM-DD HH:MM:SS'` format and the current ISO-8601 format compares incorrectly -- `'T'` sorts after `' '`. This affects `ORDER BY` as well as `WHERE`.
 - **Resource files**: load them through the spec table in `src/config.js`, which resolves `resources/X` first and falls back to `resources/X.example.*`, warning per file. Required resources that are missing entirely are collected into a single error naming all of them. Never read a resource file directly from a consumer -- `scripts/addRewards.js` does it via the exported `resolveResourcePath` for this reason.
@@ -122,9 +122,22 @@ docker compose up    # Run in a container (see README for the data/ ownership ca
 
 ## Resource Files
 
-All in `resources/`:
-- `greetings.txt` -- One greeting per line, `{user}` placeholder
-- `persona.txt` -- AI personality prompt
-- `lore.txt` -- Adventure lore/world-building
-- `aliases.txt` -- `username:Display Name` mappings
-- `mediaRewards.json` -- Channel point reward configs for media overlay
+All in `resources/`, resolved by the `RESOURCE_SPECS` table in `src/config.js`. Each one resolves to
+the real file if present, otherwise its committed `.example` counterpart (with a warning naming the
+real file to create). The real files are gitignored; only the `.example` versions are committed.
+
+| File | Required | Purpose |
+|---|---|---|
+| `greetings.txt` | yes | One greeting per line, `{user}` placeholder |
+| `goodbyes.txt` | yes | One goodbye per line, `{user}` placeholder |
+| `persona.txt` | yes | AI personality prompt |
+| `lore.txt` | no | Adventure lore / world-building |
+| `aliases.txt` | no | `username:Display Name` mappings, `#` for comments |
+| `mediaRewards.json` | no | Channel point reward configs for the media overlay |
+
+"Required" means: if neither the real file nor its `.example` exists, `buildConfig` throws. Optional
+resources fall back to a declared empty value (`''` for lore, `{}` for aliases) instead.
+
+Missing required resources are collected into a **single** error naming all of them, which points at
+the README's `Resource files` section — keep that heading spelled exactly that way or the error lies.
+See the README table for each file's format with inline examples.

@@ -285,7 +285,7 @@ The SQLite database is backed up automatically:
 | `GROQ_API_KEY` | Yes | — | Groq API key for AI responses |
 | `TWITCH_BROADCASTER_TOKEN` | No | — | Broadcaster account OAuth access token. Enables channel points, stream EventSub, and presence-based greetings/goodbyes. |
 | `TWITCH_BROADCASTER_REFRESH_TOKEN` | No | — | Broadcaster account OAuth refresh token (paired with the above) |
-| `EXCLUDED_USERS` | No | — | Comma-separated extra usernames excluded from greetings, goodbyes, the inactivity shame message, and the top-users summary. The bot always excludes itself, the channel owner, and a built-in bot list (`streamelements`, `nightbot`, `streamlabs`, `moobot`, `fossabot`) — this variable only adds to that list; it does **not** filter incoming chat messages, which are processed normally for every user. |
+| `EXCLUDED_USERS` | No | — | Comma-separated extra usernames excluded from greetings, goodbyes, the inactivity shame message, presence events, and the habitual-users list in the stream-start announcement. The bot always excludes itself, the channel owner, and a built-in bot list (`streamelements`, `nightbot`, `streamlabs`, `moobot`, `fossabot`) — this variable only adds to that list. It does **not** filter incoming chat messages, which are processed normally for every user, and it does **not** filter the `!status` top-users summary. |
 | `MEDIA_OVERLAY_ENABLED` | No | `true` | Set to `false` to disable the media overlay server |
 | `MEDIA_OVERLAY_PORT` | No | `8910` | Port for the SSE overlay server |
 | `HEALTH_PORT` | No | `9090` | Port for the health/metrics/REST server |
