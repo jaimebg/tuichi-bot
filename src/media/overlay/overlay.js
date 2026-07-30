@@ -278,7 +278,7 @@
             } else if (payload.type === 'clear') {
                 reset();
             }
-        } catch (_) {
+        } catch {
             // ignore
         }
     };

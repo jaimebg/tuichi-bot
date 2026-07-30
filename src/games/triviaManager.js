@@ -101,7 +101,7 @@ Cada pregunta debe ser diferente, inesperada y desde un ángulo único. Responde
             let triviaData = null;
             try {
                 triviaData = extractJson(finalMessage);
-            } catch (e) {
+            } catch {
                 log("warn", "Failed to parse trivia JSON");
                 return null;
             }

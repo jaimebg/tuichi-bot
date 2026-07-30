@@ -300,11 +300,11 @@ class MediaOverlayServer {
         for (const client of Array.from(this.clients)) {
             try {
                 client.write(data);
-            } catch (err) {
+            } catch {
                 this.clients.delete(client);
                 try {
                     client.end();
-                } catch (_) {
+                } catch {
                     // ignore
                 }
             }
@@ -424,7 +424,7 @@ class MediaOverlayServer {
                         "Access-Control-Allow-Origin": "*"
                     });
                     res.end(JSON.stringify({ error: "Payload too large" }));
-                } catch (_) {
+                } catch {
                     // ignore
                 } finally {
                     req.destroy();
@@ -437,7 +437,7 @@ class MediaOverlayServer {
                 if (rawBody.trim()) {
                     try {
                         payload = JSON.parse(rawBody);
-                    } catch (err) {
+                    } catch {
                         res.writeHead(400, {
                             "Content-Type": "application/json",
                             "Access-Control-Allow-Origin": "*"

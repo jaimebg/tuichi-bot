@@ -3,7 +3,6 @@ import { PollManager } from '../games/pollManager.js';
 import { TriviaManager } from '../games/triviaManager.js';
 import { AdventureManager } from '../games/adventureManager.js';
 import { SurviveManager } from '../games/surviveManager.js';
-import { log } from '../logger.js';
 
 /**
  * Routes game commands. Emits 'send' and 'sendLong' for bot to relay to chat.

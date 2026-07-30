@@ -52,7 +52,7 @@ ${this.lore}`
             let data = null;
             try {
                 data = extractJson(finalMessage);
-            } catch (e) {
+            } catch {
                 // fallback
             }
             if (!data) {
@@ -203,7 +203,7 @@ ${this.lore}`
             let data = null;
             try {
                 data = extractJson(finalMessage);
-            } catch (e) {
+            } catch {
                 // fallback
             }
             if (!data) {
@@ -284,7 +284,7 @@ ${this.lore}`
             let data = null;
             try {
                 data = extractJson(finalMessage);
-            } catch (e) {
+            } catch {
                 // fallback
             }
             if (data) {

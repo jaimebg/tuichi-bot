@@ -1,5 +1,3 @@
-import { log } from '../logger.js';
-
 /**
  * MessageLogger: Ultra-lightweight participation tracker.
  * Only tracks user message counts for stream statistics (top users at disconnect).

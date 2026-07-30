@@ -18,7 +18,7 @@ import { Scheduler } from './scheduler.js';
 import { MetricsCollector } from './metricsCollector.js';
 import { HealthServer } from './healthServer.js';
 import { Watchdog } from './watchdog.js';
-import { normalizeWhitespace, clampResponseLength } from '../utils/text.js';
+import { clampResponseLength } from '../utils/text.js';
 import { spontaneousReplySystemPrompt, streamStartFallback, shameSystemPrompt } from './prompts.js';
 import fs from 'node:fs';
 import path from 'node:path';
