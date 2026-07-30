@@ -4,6 +4,7 @@ import { TwitchApi } from '../twitch/twitchApi.js';
 import { ChatHandler } from './chatHandler.js';
 import { AiController } from './aiController.js';
 import { GameController } from './gameController.js';
+import { CommandRouter } from './commandRouter.js';
 import { StreamMonitor } from './streamMonitor.js';
 import { ChatterPresence } from './chatterPresence.js';
 import { Greeter } from './greeter.js';
@@ -159,6 +160,13 @@ export class Bot {
 
     // Production modules
     this.metrics = new MetricsCollector();
+
+    // Standalone chat commands: !ayuda (everyone), !status/!saluditos (owner-only)
+    this.commandRouter = new CommandRouter({
+      chat: this.chat, config, ownerKey: this.ownerKey,
+      db: this.db, metrics: this.metrics, ai: this.ai,
+      streamMonitor: this.streamMonitor, greeter: this.greeter
+    });
 
     // @mentions and replies-to-bot: the AI-driven conversational path
     this.persona = new PersonaResponder({
@@ -316,48 +324,8 @@ export class Bot {
     this.metrics.increment('messagesReceived');
     this.inactivityTracker.updateActivity(userKey, displayName);
 
-    // Help command (everyone)
-    if (message === '!ayuda') {
-      this.chat.sendLongMessage(
-        '📋 Comandos: ' +
-        '!ayuda - Lista de comandos | ' +
-        '!poll pregunta | opción1 | opción2 [| segundos] - Crear encuesta (votar con !1, !2...) | ' +
-        '!trivia - Trivia con IA (responder con !a, !b, !c, !d) | ' +
-        '!aventura [tema] - Aventura interactiva (votar con !1, !2...) | ' +
-        '!survive - Battle royale de chat | ' +
-        `También puedes mencionarme con @${this.config.twitch.username} para hablar conmigo guapa xdd`
-      ).catch(err => log('warn', `Failed to send ayuda: ${err.message}`));
-      return;
-    }
-
-    // Status command (owner only)
-    if (message === '!status' && userKey === this.ownerKey) {
-      const chatOk = this.chat.isHealthy(this.streamMonitor?.isOnline ?? false);
-      let dbOk = false;
-      try { dbOk = !!this.db.raw.prepare('SELECT 1 as v').get(); } catch { /* db unavailable */ }
-      const uptimeS = Math.floor((Date.now() - this.metrics.startedAt) / 1000);
-      const hours = Math.floor(uptimeS / 3600);
-      const mins = Math.floor((uptimeS % 3600) / 60);
-      const circuit = this.ai?.getCircuitState?.() ?? 'unknown';
-      const mem = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
-      const snap = this.metrics.getSnapshot();
-      this.chat.sendMessage(
-        `🤖 Status: ${chatOk && dbOk ? '✅ OK' : '⚠️ Problemas'} | ` +
-        `Uptime: ${hours}h${mins}m | ` +
-        `Chat: ${chatOk ? '✅' : '❌'} | DB: ${dbOk ? '✅' : '❌'} | ` +
-        `AI: ${circuit} | Mem: ${mem}MB | ` +
-        `Msgs: ${snap.counters.messagesReceived}↓ ${snap.counters.messagesSent}↑`
-      ).catch(err => log('warn', `Failed to send status: ${err.message}`));
-      return;
-    }
-
-    // Greetings toggle (owner only)
-    if (message === '!saluditos' && userKey === this.ownerKey) {
-      this.greeter.setEnabled(!this.greeter.isEnabled());
-      this.chat.sendMessage(`Saludos ${this.greeter.isEnabled() ? 'activados' : 'desactivados'}`)
-        .catch(err => log('warn', `Failed to send saluditos toggle: ${err.message}`));
-      return;
-    }
+    // Standalone commands: !ayuda (everyone), !status/!saluditos (owner only)
+    if (this.commandRouter.handle(userKey, message)) return;
 
     // Intelligence extraction
     this.ai.extractIntelligence(this.userMemory, userKey, message);
