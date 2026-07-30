@@ -155,7 +155,12 @@ export function buildConfig(env = process.env) {
   const resources = loadResources(RESOURCES_DIR);
   return Object.freeze({
     twitch: Object.freeze({
-      username: vars.TWITCH_USERNAME, channel: vars.TWITCH_CHANNEL,
+      // Lowercased here, once, so every mention/reply comparison downstream
+      // (which always keys off lowercased incoming logins) just works — no
+      // consumer has to remember to normalize it again. See Task 25: an
+      // unnormalized mixed-case TWITCH_USERNAME silently broke the entire
+      // @mention/reply path with zero errors logged.
+      username: vars.TWITCH_USERNAME.toLowerCase(), channel: vars.TWITCH_CHANNEL,
       apiToken: vars.TWITCH_API_TOKEN,
       refreshToken: vars.TWITCH_REFRESH_TOKEN,
       clientId: vars.TWITCH_CLIENT_ID, clientSecret: vars.TWITCH_CLIENT_SECRET,

@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { PersonaResponder } from '../../src/bot/personaResponder.js';
+import { buildConfig } from '../../src/config.js';
 
 /**
  * Builds a PersonaResponder with fully-overridable fake deps. Mock method
@@ -331,6 +332,63 @@ describe('PersonaResponder', () => {
       // chance to run.
       await new Promise((r) => setTimeout(r, 10));
       assert.equal(sent.length, 1, 'el envío fire-and-forget sí debe completarse eventualmente');
+    });
+  });
+
+  describe('integración con buildConfig: normalización de TWITCH_USERNAME', () => {
+    // The unit-level tests above hand-construct `config.twitch.username` already
+    // lowercased, which sidesteps the actual bug: TWITCH_USERNAME is a raw env
+    // var, and nothing guaranteed it arrived lowercase. This test goes through
+    // the real `buildConfig` pipeline with a mixed-case TWITCH_USERNAME, exactly
+    // as a user who types their bot's name with natural capitalization would
+    // configure it, and proves the user-visible behavior that actually matters:
+    // a plain lowercase @mention must still get a reply. The `config.test.js`
+    // unit test only guards the normalization itself; this one guards against
+    // silently regressing the mention path with no error anywhere in the log.
+    it('con TWITCH_USERNAME configurado en mayúsculas, una mención en minúsculas obtiene respuesta', async () => {
+      const cfg = buildConfig({
+        TWITCH_USERNAME: 'MiBot', TWITCH_CHANNEL: 'MiCanal',
+        TWITCH_API_TOKEN: 'x', TWITCH_REFRESH_TOKEN: 'x',
+        TWITCH_CLIENT_ID: 'x', TWITCH_CLIENT_SECRET: 'x', GROQ_API_KEY: 'x'
+      });
+
+      const sent = [];
+      const ai = {
+        groqConfig: { apiKey: 'x' },
+        maxChars: 400,
+        pendingRequests: new Set(),
+        waitForCooldown: () => Promise.resolve(true),
+        fetchGroqResponse: () => Promise.resolve('respuesta de prueba'),
+        buildChatMessages: () => [],
+        _getAlias: (k, d) => d,
+        _recordResponse: () => {}
+      };
+      const conversationThreads = {
+        getOrCreateThread: () => 't1',
+        addMessage: () => {},
+        getThread: () => []
+      };
+
+      const responder = new PersonaResponder({
+        chat: { sendMessage: (m) => { sent.push(m); return Promise.resolve(); } },
+        ai,
+        config: cfg,
+        conversationThreads,
+        userMemory: { getUserSummary: () => null },
+        userContextStore: { getContextSnapshot: () => null },
+        recentChat: { getRecentContext: () => '' },
+        streamMonitor: { currentGame: null },
+        metrics: { increment: () => {} }
+      });
+
+      responder.handleMention({
+        userKey: 'a', displayName: 'A', message: '@mibot hola',
+        tags: {}, msg: {}, timestamp: Date.now()
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      assert.equal(sent.length, 1,
+        'una mención en minúsculas debe obtener respuesta aunque TWITCH_USERNAME esté configurado en mayúsculas');
     });
   });
 });

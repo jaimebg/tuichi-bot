@@ -31,6 +31,17 @@ describe('validateEnv', () => {
   });
 });
 
+describe('twitch.username', () => {
+  it('normaliza TWITCH_USERNAME a minúsculas', () => {
+    const cfg = buildConfig({
+      TWITCH_USERNAME: 'MiBot', TWITCH_CHANNEL: 'MiCanal',
+      TWITCH_API_TOKEN: 'x', TWITCH_REFRESH_TOKEN: 'x',
+      TWITCH_CLIENT_ID: 'x', TWITCH_CLIENT_SECRET: 'x', GROQ_API_KEY: 'x'
+    });
+    assert.equal(cfg.twitch.username, 'mibot');
+  });
+});
+
 describe('engagement.excludedUsers', () => {
   const baseEnv = {
     TWITCH_USERNAME: 'mibot', TWITCH_CHANNEL: 'micanal',
