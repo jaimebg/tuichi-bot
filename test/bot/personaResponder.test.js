@@ -123,6 +123,39 @@ describe('PersonaResponder', () => {
       assert.equal(sent.length, 1, 'la primera llamada sí debe completarse y enviar una vez resuelta');
     });
 
+    it('cierra la carrera TOCTOU: dos mentions del mismo usuario solapadas durante waitForCooldown producen un solo envío', async () => {
+      // Reproduces the empirically-confirmed bug: the guard used to check
+      // `pendingRequests.has(userKey)` BEFORE awaiting `waitForCooldown`, and
+      // only `.add(userKey)` AFTER it resolved. Two calls landing inside that
+      // wait both cleared the guard before either had marked itself, so both
+      // went on to fetch and send. `waitForCooldown` here genuinely waits (a
+      // real setTimeout, not an immediately-resolved promise) so the second
+      // call's guard check happens while the first is still mid-wait -- the
+      // actual window described in the bug report.
+      let waitForCooldownCalls = 0;
+      const waitForCooldown = () => new Promise((resolve) => {
+        waitForCooldownCalls++;
+        setTimeout(() => resolve(true), 20);
+      });
+      const { sent, ai, responder } = makeResponder({ waitForCooldown });
+      const args = (msg) => ({
+        userKey: 'race', displayName: 'R', message: '@mibot hola',
+        msg, mentionContext: '', threadId: 't1', timestamp: Date.now()
+      });
+
+      const first = responder.respondToMention(args({ id: 'first' }));
+      // Land the second call inside the first call's cooldown wait window,
+      // well before its 20ms setTimeout fires.
+      await new Promise((r) => setTimeout(r, 5));
+      const second = responder.respondToMention(args({ id: 'second' }));
+
+      await Promise.all([first, second]);
+
+      assert.equal(sent.length, 1, 'una única mención concurrente del mismo usuario debe producir un único envío');
+      assert.equal(ai.pendingRequests.has('race'), false, 'la marca no debe quedar filtrada tras resolverse ambas llamadas');
+      assert.ok(waitForCooldownCalls >= 1);
+    });
+
     it('respeta el guard de pendingRequests ya activo para ese usuario', async () => {
       const pendingRequests = new Set(['a']);
       const { sent, responder } = makeResponder({ pendingRequests });
@@ -133,13 +166,19 @@ describe('PersonaResponder', () => {
       assert.equal(sent.length, 0);
     });
 
-    it('no responde si waitForCooldown resuelve false', async () => {
-      const { sent, responder } = makeResponder({ waitForCooldown: () => Promise.resolve(false) });
+    it('no responde si waitForCooldown resuelve false, y no filtra la marca de pendingRequests', async () => {
+      // The slot is reserved (added) BEFORE awaiting waitForCooldown, so this
+      // `!ready` early-return path must still release it via the `finally` --
+      // otherwise this userKey would never get a reply again for the life of
+      // the process.
+      const pendingRequests = new Set();
+      const { sent, responder } = makeResponder({ pendingRequests, waitForCooldown: () => Promise.resolve(false) });
       await responder.respondToMention({
         userKey: 'a', displayName: 'A', message: '@mibot hola',
         msg: {}, mentionContext: '', threadId: 't1', timestamp: Date.now()
       });
       assert.equal(sent.length, 0);
+      assert.equal(pendingRequests.has('a'), false, 'pendingRequests no debe quedar bloqueado cuando waitForCooldown resuelve false');
     });
 
     it('envía el mensaje de fallback del circuit breaker cuando la respuesta es null', async () => {

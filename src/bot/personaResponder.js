@@ -43,11 +43,17 @@ export class PersonaResponder {
   async respondToMention({ userKey, displayName, message, msg, mentionContext, threadId, timestamp }) {
     if (!this.ai.groqConfig) return;
     if (this.ai.pendingRequests.has(userKey)) return;
-    const ready = await this.ai.waitForCooldown(userKey);
-    if (!ready) return;
-
+    // Reserve the slot BEFORE awaiting the cooldown wait, not after: two
+    // mentions from the same user landing inside that wait would otherwise
+    // both clear the `.has()` check above before either had a chance to
+    // `.add()`, letting both through (see git history for the empirically
+    // confirmed race). The `finally` below is the single release point for
+    // every path out of this function from here on, including `!ready`.
     this.ai.pendingRequests.add(userKey);
     try {
+      const ready = await this.ai.waitForCooldown(userKey);
+      if (!ready) return;
+
       // Gather context for AI prompt
       const streamDuration = Math.floor((Date.now() - (this.streamMonitor.streamStartTime || Date.now())) / (1000 * 60));
       let streamContext = `Hora actual: ${new Date().toLocaleTimeString('es-ES')}. Stream activo por ${streamDuration} minutos.`;
