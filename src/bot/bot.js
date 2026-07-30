@@ -6,6 +6,7 @@ import { AiController } from './aiController.js';
 import { GameController } from './gameController.js';
 import { StreamMonitor } from './streamMonitor.js';
 import { ChatterPresence } from './chatterPresence.js';
+import { Greeter } from './greeter.js';
 import { UserMemory } from '../intelligence/userMemory.js';
 import { UserContextStore } from '../intelligence/userContextStore.js';
 import { RecentChatTracker } from '../intelligence/recentChatTracker.js';
@@ -130,9 +131,16 @@ export class Bot {
       log('warn', 'Presence tracking disabled: set TWITCH_BROADCASTER_TOKEN (with moderator:read:chatters) to enable greetings/goodbyes.');
     }
 
-    // Session state
-    this.greetedUsers = new Map();   // userKey -> last-greeted timestamp (re-greet cooldown)
-    this.greetingsEnabled = true;
+    // Presence-driven greetings/goodbyes
+    this.greeter = new Greeter({
+      chat: this.chat,
+      greetings: config.resources.greetings,
+      goodbyes: config.resources.goodbyes,
+      excludedUsers: config.engagement.excludedUsers,
+      botUsername: config.twitch.username,
+      greetCooldownMs: config.presence.greetCooldownMs,
+      inactivityTracker: this.inactivityTracker
+    });
     // Owner-only commands (!status, !saluditos) are gated on the configured channel,
     // not a hardcoded name, so any deployment's channel owner can use them.
     this.ownerKey = config.twitch.channel.toLowerCase().replace(/^#/, '');
@@ -167,8 +175,8 @@ export class Bot {
 
     // Presence (Helix Get Chatters) -> greetings + goodbyes
     if (this.chatterPresence) {
-      this.chatterPresence.on('join', ({ userKey, username }) => this._handlePresenceJoin(userKey, username));
-      this.chatterPresence.on('leave', ({ userKey, username }) => this._handlePresenceLeave(userKey, username));
+      this.chatterPresence.on('join', ({ userKey, username }) => this.greeter.handlePresenceJoin(userKey, username));
+      this.chatterPresence.on('leave', ({ userKey, username }) => this.greeter.handlePresenceLeave(userKey, username));
     }
 
     // Game controller -> chat
@@ -313,8 +321,8 @@ export class Bot {
 
     // Greetings toggle (owner only)
     if (message === '!saluditos' && userKey === this.ownerKey) {
-      this.greetingsEnabled = !this.greetingsEnabled;
-      this.chat.sendMessage(`Saludos ${this.greetingsEnabled ? 'activados' : 'desactivados'}`)
+      this.greeter.setEnabled(!this.greeter.isEnabled());
+      this.chat.sendMessage(`Saludos ${this.greeter.isEnabled() ? 'activados' : 'desactivados'}`)
         .catch(err => log('warn', `Failed to send saluditos toggle: ${err.message}`));
       return;
     }
@@ -433,55 +441,6 @@ export class Bot {
       const selected = arr[Math.floor(Math.random() * arr.length)];
       this.mediaOverlay.triggerByTitle(selected, displayName);
     }
-  }
-
-  // --- Presence-driven greetings / goodbyes (Helix Get Chatters) ---
-  _handlePresenceJoin(userKey, username) {
-    if (!this.greetingsEnabled) return;
-    if (userKey === this.config.twitch.username) return;
-    if (this.config.engagement.excludedUsers.has(userKey)) return;
-    // Re-greet cooldown: don't greet a user we already greeted recently.
-    const lastGreeted = this.greetedUsers.get(userKey);
-    if (lastGreeted && Date.now() - lastGreeted < this.config.presence.greetCooldownMs) return;
-    this._sendGreeting(userKey, username);
-  }
-
-  _handlePresenceLeave(userKey, username) {
-    if (userKey === this.config.twitch.username) return;
-    this.inactivityTracker.clearUser(userKey);
-    // Confirmed departure: forget the greeting so a genuine rejoin is greeted again
-    // immediately (no cooldown). The cooldown only suppresses re-greets without a leave.
-    this.greetedUsers.delete(userKey);
-    if (!this.greetingsEnabled || this.config.engagement.excludedUsers.has(userKey)) return;
-    this._sendGoodbye(username);
-  }
-
-  // --- Greeting subsystem ---
-  _sendGreeting(userKey, username) {
-    const text = this._pickGreeting(username);
-    this.chat.sendMessage(text).then(() => {
-      this.greetedUsers.set(userKey, Date.now());
-      log('info', `Greeted ${username}`);
-    }).catch(err => log('warn', `Failed to greet ${username}: ${err.message}`));
-  }
-
-  _pickGreeting(username) {
-    const greetings = this.config.resources.greetings;
-    const idx = Math.floor(Math.random() * greetings.length);
-    return greetings[idx].replace(/\{user\}/g, username);
-  }
-
-  _sendGoodbye(username) {
-    const text = this._pickGoodbye(username);
-    this.chat.sendMessage(text).catch(err =>
-      log('warn', `Failed to send goodbye for ${username}: ${err.message}`)
-    );
-  }
-
-  _pickGoodbye(username) {
-    const goodbyes = this.config.resources.goodbyes;
-    const idx = Math.floor(Math.random() * goodbyes.length);
-    return goodbyes[idx].replace(/\{user\}/g, username);
   }
 
   // --- Mention/reply handling ---
@@ -639,19 +598,18 @@ export class Bot {
     this.conversationThreads.save();
     await this.userContextStore.flush();
     // Prune greeted entries past the re-greet cooldown, then persist the rest so
-    // returning viewers aren't re-greeted across restarts. (Used by _handlePresenceJoin.)
-    const greetCutoff = Date.now() - this.config.presence.greetCooldownMs;
-    for (const [k, ts] of this.greetedUsers) if (ts < greetCutoff) this.greetedUsers.delete(k);
-    this.db.state.set('greetingsEnabled', String(this.greetingsEnabled));
-    this.db.state.set('greetedUsers', JSON.stringify(Object.fromEntries(this.greetedUsers)));
+    // returning viewers aren't re-greeted across restarts.
+    this.greeter.pruneGreeted(Date.now() - this.config.presence.greetCooldownMs);
+    this.db.state.set('greetingsEnabled', String(this.greeter.isEnabled()));
+    this.db.state.set('greetedUsers', JSON.stringify(Object.fromEntries(this.greeter.greetedUsers)));
     log('debug', 'Data saved');
   }
   _loadBotState() {
     const ge = this.db.state.get('greetingsEnabled');
-    if (ge !== null) this.greetingsEnabled = ge === 'true';
+    if (ge !== null) this.greeter.setEnabled(ge === 'true');
     const gu = this.db.state.get('greetedUsers');
     if (gu) {
-      try { this.greetedUsers = new Map(Object.entries(JSON.parse(gu))); } catch { /* ignore corrupt data */ }
+      try { this.greeter.loadGreeted(JSON.parse(gu)); } catch { /* ignore corrupt data */ }
     }
   }
   _getTopUsersMessage(limit) {
@@ -683,7 +641,7 @@ export class Bot {
         `inactivity:${this.inactivityTracker.userLastActivity.size} ` +
         `cooldowns:${this.ai.userLastResponseAt.size} ` +
         `msgLogger:${this.messageLogger.userMessageCount.size} ` +
-        `greetedUsers:${this.greetedUsers.size}`
+        `greetedUsers:${this.greeter.greetedUsers.size}`
       );
     }
   }
