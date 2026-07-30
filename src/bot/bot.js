@@ -22,7 +22,8 @@ import { MetricsCollector } from './metricsCollector.js';
 import { HealthServer } from './healthServer.js';
 import { Watchdog } from './watchdog.js';
 import { clampResponseLength } from '../utils/text.js';
-import { streamStartFallback, shameSystemPrompt } from './prompts.js';
+import { shameSystemPrompt } from './prompts.js';
+import { StreamAnnouncer } from './streamAnnouncer.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -92,6 +93,12 @@ export class Bot {
       chat: this.chat, ai: this.ai, config,
       recentChat: this.recentChat, userMemory: this.userMemory,
       streamMonitor: this.streamMonitor, mediaOverlay: this.mediaOverlay
+    });
+
+    // Stream-start / category-change chat announcements
+    this.streamAnnouncer = new StreamAnnouncer({
+      ai: this.ai, config,
+      userMemory: this.userMemory, recentChat: this.recentChat
     });
 
     // EventSub (shared WebSocket for channel points + stream events)
@@ -208,7 +215,7 @@ export class Bot {
     this.streamMonitor.on('live', async (info) => {
       try {
         this.messageLogger.reset();
-        const msg = await this._generateStreamStartMessage(info.title, info.game);
+        const msg = await this.streamAnnouncer.generateStreamStartMessage(info.title, info.game);
         await this.chat.sendMessage(msg);
       } catch (err) { log('warn', `Failed to handle stream live event: ${err.message}`); }
     });
@@ -221,7 +228,7 @@ export class Bot {
     });
     this.streamMonitor.on('categoryChange', async (info) => {
       try {
-        const msg = await this._generateCategoryChangeMessage(info.previous, info.current);
+        const msg = await this.streamAnnouncer.generateCategoryChangeMessage(info.previous, info.current);
         await this.chat.sendMessage(msg);
       } catch (err) { log('warn', `Failed to handle category change event: ${err.message}`); }
     });
@@ -394,51 +401,6 @@ export class Bot {
       if (!handled) {
         log('debug', `No media mapping for reward ${rewardTitle} (${redemption.reward?.id || 'unknown'})`);
       }
-    }
-  }
-
-  // --- Stream start/category AI messages ---
-  async _generateStreamStartMessage(title, game) {
-    if (!this.ai.groqConfig) return streamStartFallback({
-      channelDisplayName: this.config.twitch.channel, title, game
-    });
-    const habitualUsers = Array.from(this.userMemory.memories.keys())
-      .filter(u => !this.config.engagement.excludedUsers.has(u.toLowerCase())).slice(0, 10).join(', ');
-    const prompt = `Genera un mensaje de bienvenida detallado y atractivo para el inicio de un stream de Twitch. Título: "${title}". Categoría: "${game}". Usuarios habituales: ${habitualUsers || 'Ninguno disponible'}. El mensaje debe incluir el titulo y la categoría. Hasta 400 caracteres, entusiasta, único. Responde solo con el mensaje.`;
-    const msgs = [
-      { role: 'system', content: `Eres un creador de contenido de Twitch entusiasta. Tu personalidad es: ${this.config.resources.persona}.` },
-      { role: 'user', content: prompt }
-    ];
-    try {
-      const reply = await this.ai.fetchGroqResponse(msgs);
-      return clampResponseLength(reply, 400);
-    } catch (err) {
-      log('warn', `Failed to generate stream start message: ${err.message}`);
-      return streamStartFallback({
-        channelDisplayName: this.config.twitch.channel, title, game
-      });
-    }
-  }
-
-  async _generateCategoryChangeMessage(previousGame, newGame) {
-    const fallback = `¡Cambio de categoría! Ahora estamos jugando ${newGame} (antes: ${previousGame}).`;
-    if (!this.ai.groqConfig) return fallback;
-    const recentMessages = this.recentChat.messages.slice(-5)
-      .map(m => `${m.displayName}: ${m.message}`).join('\n');
-    const prompt = `Genera un mensaje para anunciar un cambio de categoría. Anterior: "${previousGame}". Nueva: "${newGame}". Chat reciente: ${recentMessages || 'Ninguno'}. Incluye exactamente "Ahora estamos en ${newGame}". Hasta 200 caracteres. Solo el mensaje.`;
-    const msgs = [
-      { role: 'system', content: `Eres un creador de contenido de Twitch entusiasta. Tu personalidad es: ${this.config.resources.persona}.` },
-      { role: 'user', content: prompt }
-    ];
-    try {
-      const reply = await this.ai.fetchGroqResponse(msgs);
-      const finalMessage = clampResponseLength(reply, 200);
-      // Validate AI included the required phrase; fallback if not
-      if (finalMessage && finalMessage.includes('Ahora estamos')) return finalMessage;
-      return fallback;
-    } catch (err) {
-      log('warn', `Failed to generate category change message: ${err.message}`);
-      return fallback;
     }
   }
 
