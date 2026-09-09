@@ -77,10 +77,21 @@ export class EventSubClient {
     this.broadcasterId = user.id;
   }
 
+  /**
+   * Pick the endpoint to dial. A `session_reconnect` URL is single-use: once
+   * handed out it is cleared, so a failed reconnect falls back to the base
+   * endpoint instead of re-dialing a dead URL (which Twitch rejects with 4007).
+   */
+  _takeTargetUrl() {
+    const url = this.reconnectUrl || this.socketUrl;
+    this.reconnectUrl = null;
+    return url;
+  }
+
   _connect(url = null) {
     if (!this.started || !this.broadcasterId) return;
     if (this.ws) { try { this.ws.terminate(); } catch { /* ignore */ } this.ws = null; }
-    const targetUrl = url || this.socketUrl;
+    const targetUrl = url || this._takeTargetUrl();
     log('info', `Connecting to Twitch EventSub at ${targetUrl}`);
     const ws = new WebSocket(targetUrl);
     this.ws = ws;
@@ -105,7 +116,9 @@ export class EventSubClient {
     if (!this.started) return;
 
     // Rate-limited close codes
-    const rateLimitCodes = new Set([4002, 4007, 4019, 4020]);
+    // 4007 (invalid reconnect) is deliberately absent: it means the reconnect
+    // URL was stale, which retrying the base endpoint fixes immediately.
+    const rateLimitCodes = new Set([4002, 4019, 4020]);
     const is429 = rateLimitCodes.has(code);
     log('warn', `EventSub WebSocket closed (code ${code ?? 0}). Scheduling reconnect.`);
     this._scheduleReconnect(is429);
@@ -199,7 +212,7 @@ export class EventSubClient {
     }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      this._connect(this.reconnectUrl || this.socketUrl);
+      this._connect();
     }, delay);
     this.currentReconnectDelay = Math.min(this.currentReconnectDelay * 1.5, this.maxReconnectMs);
   }
@@ -212,7 +225,7 @@ export class EventSubClient {
     this._pendingSubscriptions = false;
     if (immediate) {
       this.currentReconnectDelay = this.reconnectBaseMs;
-      this._connect(this.reconnectUrl || this.socketUrl);
+      this._connect();
     } else {
       this._scheduleReconnect();
     }
