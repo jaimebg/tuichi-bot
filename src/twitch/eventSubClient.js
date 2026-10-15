@@ -96,10 +96,7 @@ export class EventSubClient {
     const ws = new WebSocket(targetUrl);
     this.ws = ws;
 
-    ws.on('open', () => {
-      log('info', 'Connected to Twitch EventSub WebSocket.');
-      this.currentReconnectDelay = this.reconnectBaseMs;
-    });
+    ws.on('open', () => this._handleSocketOpen());
     ws.on('message', (data) => this._handleMessage(data));
     ws.on('close', (code) => this._handleSocketClose(code));
     ws.on('error', (err) => {
@@ -107,6 +104,12 @@ export class EventSubClient {
       if (err.code === 'ECONNREFUSED') log('warn', 'Connection refused - server may be temporarily unavailable');
       else if (err.code === 'ENOTFOUND') log('warn', 'DNS resolution failed - check network connectivity');
     });
+  }
+
+  _handleSocketOpen() {
+    // The reconnect backoff is reset only once subscriptions succeed: a socket
+    // that opens but then fails to subscribe must not re-dial every 5s.
+    log('info', 'Connected to Twitch EventSub WebSocket.');
   }
 
   _handleSocketClose(code) {
@@ -236,11 +239,11 @@ export class EventSubClient {
     if (!this.sessionId || !this.broadcasterId) return;
     this._pendingSubscriptions = true;
 
-    const clientId = this.twitchApi.authProvider.clientId;
-    const token = await this.twitchApi.getAccessToken();
+    let token = await this._getSubscriptionToken();
     if (!token) { log('warn', 'EventSubClient: no access token available.'); this._pendingSubscriptions = false; return; }
 
     let allOk = true;
+    let retriedAuth = false;
     for (const [type, { version, condition }] of this._subscriptions) {
       try {
         const resolvedCondition = { ...condition };
@@ -249,19 +252,18 @@ export class EventSubClient {
           resolvedCondition.broadcaster_user_id = this.broadcasterId;
         }
 
-        const response = await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
-          method: 'POST',
-          headers: {
-            'Client-Id': clientId,
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            type, version,
-            condition: resolvedCondition,
-            transport: { method: 'websocket', session_id: this.sessionId }
-          })
-        });
+        let response = await this._createSubscription(token, type, version, resolvedCondition);
+        // A 401 means the token itself was rejected: reconnecting with the same
+        // token can never succeed, so force a refresh and retry once.
+        if (response.status === 401 && !retriedAuth) {
+          retriedAuth = true;
+          log('warn', `Subscription auth failed for ${type}. Refreshing token and retrying.`);
+          const refreshed = await this._getSubscriptionToken({ forceRefresh: true });
+          if (refreshed) {
+            token = refreshed;
+            response = await this._createSubscription(token, type, version, resolvedCondition);
+          }
+        }
 
         if (response.status === 409) {
           log('info', `EventSub subscription already exists: ${type}`);
@@ -295,6 +297,36 @@ export class EventSubClient {
     }
     this._subscriptionsCreated = allOk;
     this._pendingSubscriptions = false;
-    if (allOk) this._setConnected(true);
+    if (allOk) {
+      this.currentReconnectDelay = this.reconnectBaseMs;
+      this._setConnected(true);
+    }
+  }
+
+  /**
+   * Token used to create subscriptions. Channel points require the
+   * broadcaster's token; fall back to the bot's when none is configured.
+   */
+  async _getSubscriptionToken({ forceRefresh = false } = {}) {
+    const api = this.twitchApi;
+    if (forceRefresh && api.refreshBroadcasterAccessToken) {
+      return api.refreshBroadcasterAccessToken();
+    }
+    return (await api.getBroadcasterAccessToken?.()) || api.getAccessToken();
+  }
+
+  _createSubscription(token, type, version, condition) {
+    return fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
+      method: 'POST',
+      headers: {
+        'Client-Id': this.twitchApi.authProvider.clientId,
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        type, version, condition,
+        transport: { method: 'websocket', session_id: this.sessionId }
+      })
+    });
   }
 }

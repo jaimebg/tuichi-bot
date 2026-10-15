@@ -30,12 +30,10 @@ export class TwitchApi {
         ).then(broadcasterId => { this._broadcasterId = broadcasterId; })
       );
     }
-    this.authProvider.onRefresh((_userId, newTokenData) => {
+    this.authProvider.onRefresh(() => {
       log('info', 'Twitch token refreshed automatically');
-      this._latestTokenData = newTokenData;
     });
     this.api = new ApiClient({ authProvider: this.authProvider });
-    this._latestTokenData = null;
     this._userId = null;
     this._broadcasterId = null;
     this._channelId = null;
@@ -47,10 +45,11 @@ export class TwitchApi {
   /** Get the user ID that was registered with the auth provider. */
   getUserId() { return this._userId; }
 
-  /** Get the current access token (for ws/EventSub that needs raw token). */
+  /**
+   * Get the bot's current access token. Always goes through the auth provider,
+   * which refreshes it once expired; never cache the raw token here.
+   */
   async getAccessToken() {
-    if (this._latestTokenData) return this._latestTokenData.accessToken;
-    // Force a token check
     const tokenInfo = await this.authProvider.getAccessTokenForIntent('chat');
     return tokenInfo?.accessToken ?? null;
   }
@@ -60,6 +59,22 @@ export class TwitchApi {
     if (!this._broadcasterId) return null;
     const tokenInfo = await this.authProvider.getAccessTokenForUser(this._broadcasterId);
     return tokenInfo?.accessToken ?? null;
+  }
+
+  /**
+   * Force-refresh the broadcaster token, for when Twitch rejects one that has
+   * not reached its expiry yet. Returns null if there is no broadcaster token
+   * or the refresh fails (e.g. the refresh token was revoked).
+   */
+  async refreshBroadcasterAccessToken() {
+    if (!this._broadcasterId) return null;
+    try {
+      const tokenInfo = await this.authProvider.refreshAccessTokenForUser(this._broadcasterId);
+      return tokenInfo?.accessToken ?? null;
+    } catch (err) {
+      log('warn', `Broadcaster token refresh failed: ${err.message}`);
+      return null;
+    }
   }
 
   /** Get user by login name. Returns { id, displayName } or null. */

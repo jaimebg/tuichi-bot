@@ -142,3 +142,100 @@ describe('EventSubClient reconnect URL handling', () => {
     assert.equal(dialed[1], client.socketUrl, 'must fall back to the base endpoint, not the dead URL');
   });
 });
+
+describe('EventSubClient subscription auth', () => {
+  const realFetch = globalThis.fetch;
+  let client;
+  let requests;
+
+  function fakeResponse(status) {
+    return {
+      status, ok: status >= 200 && status < 300,
+      json: async () => ({ data: [{ id: 'sub-id' }] }),
+      text: async () => ''
+    };
+  }
+
+  // Twitch answers 401 to any token in `rejected`, 202 otherwise.
+  function mockFetch(rejected = new Set()) {
+    globalThis.fetch = async (_url, opts) => {
+      const token = opts.headers.Authorization.replace('Bearer ', '');
+      requests.push({ type: JSON.parse(opts.body).type, token });
+      return fakeResponse(rejected.has(token) ? 401 : 202);
+    };
+  }
+
+  function makeClient(twitchApi) {
+    client = new EventSubClient({
+      twitchApi, channelLogin: 'testchannel',
+      reconnectBaseMs: 100, maxReconnectMs: 1000, keepaliveGraceMs: 500
+    });
+    client.started = true;
+    client.sessionId = 'session-1';
+    client.broadcasterId = '12345';
+    client.registerSubscription('channel.channel_points_custom_reward_redemption.add', '1', { broadcaster_user_id: '' }, () => {});
+    client.registerSubscription('stream.online', '1', { broadcaster_user_id: '' }, () => {});
+    return client;
+  }
+
+  beforeEach(() => { requests = []; });
+  afterEach(async () => { globalThis.fetch = realFetch; await client?.stop(); });
+
+  it('creates subscriptions with the broadcaster token, not the bot token', async () => {
+    mockFetch();
+    makeClient({
+      ...mockTwitchApi(),
+      getAccessToken: async () => 'bot-token',
+      getBroadcasterAccessToken: async () => 'broadcaster-token'
+    });
+
+    await client._ensureSubscriptions();
+
+    assert.deepEqual(requests.map((r) => r.token), ['broadcaster-token', 'broadcaster-token']);
+    assert.equal(client._subscriptionsCreated, true);
+  });
+
+  it('refreshes the token and retries after a 401 instead of reconnecting', async () => {
+    mockFetch(new Set(['stale-token']));
+    let refreshes = 0;
+    makeClient({
+      ...mockTwitchApi(),
+      getBroadcasterAccessToken: async () => (refreshes ? 'fresh-token' : 'stale-token'),
+      refreshBroadcasterAccessToken: async () => { refreshes++; return 'fresh-token'; }
+    });
+    let reconnects = 0;
+    client._reconnect = () => { reconnects++; };
+
+    await client._ensureSubscriptions();
+
+    assert.equal(refreshes, 1);
+    assert.equal(reconnects, 0);
+    assert.deepEqual(requests.map((r) => r.token), ['stale-token', 'fresh-token', 'fresh-token']);
+    assert.equal(client._subscriptionsCreated, true);
+  });
+
+  it('backs off between reconnects while the token keeps being rejected', async () => {
+    mockFetch(new Set(['dead-token']));
+    makeClient({
+      ...mockTwitchApi(),
+      getBroadcasterAccessToken: async () => 'dead-token',
+      refreshBroadcasterAccessToken: async () => null
+    });
+    // Each re-dial opens a socket and gets a fresh session, as Twitch does.
+    let dials = 0;
+    client._connect = function () {
+      dials++;
+      this._handleSocketOpen();
+      this._handleSessionWelcome({ id: `session-${dials + 1}`, keepalive_timeout_seconds: 10 });
+    };
+
+    await client._ensureSubscriptions();
+    const firstDelay = client.currentReconnectDelay;
+    await new Promise((r) => setTimeout(r, 200));
+
+    assert.equal(dials, 1);
+    assert.equal(client._subscriptionsCreated, false);
+    assert.ok(client.currentReconnectDelay > firstDelay,
+      `delay should grow (was ${firstDelay}, now ${client.currentReconnectDelay})`);
+  });
+});
