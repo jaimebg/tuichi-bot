@@ -74,6 +74,22 @@ describe('Greeter', () => {
     assert.deepEqual(sent, ['hola Alice', 'adios Alice', 'hola Alice']);
   });
 
+  it('no saluda a quien ya habló en el chat antes de que la presencia lo detecte', async () => {
+    greeter.noteChatActivity('alice');
+    greeter.handlePresenceJoin('alice', 'Alice');
+    await tick();
+    assert.equal(sent.length, 0, 'saludó a alguien que ya había hablado');
+  });
+
+  it('vuelve a saludar a quien habló, salió y regresó', async () => {
+    greeter.noteChatActivity('alice');
+    greeter.handlePresenceLeave('alice', 'Alice');
+    await tick();
+    greeter.handlePresenceJoin('alice', 'Alice');
+    await tick();
+    assert.deepEqual(sent, ['adios Alice', 'hola Alice']);
+  });
+
   it('limpia el tracker de inactividad al salir', async () => {
     greeter.handlePresenceLeave('alice', 'Alice');
     await tick();

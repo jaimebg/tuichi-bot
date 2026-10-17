@@ -18,6 +18,9 @@ import { log } from '../logger.js';
  *   - A confirmed leave forgets the mark (`greetedUsers.delete(userKey)`), so a
  *     genuine rejoin IS greeted again immediately, with no cooldown wait. The
  *     cooldown only suppresses re-greets that were NOT preceded by a leave.
+ *   - Chat activity counts as greeted (`noteChatActivity`). Get Chatters lags and
+ *     is polled every ~45s, so a viewer who walks in and types right away shows up
+ *     as a presence "join" only AFTER having spoken; greeting them then is noise.
  */
 export class Greeter {
   constructor({ chat, greetings, goodbyes, excludedUsers, botUsername,
@@ -51,6 +54,15 @@ export class Greeter {
   loadGreeted(entries) {
     if (!entries) return;
     this._greetedUsers = new Map(Object.entries(entries));
+  }
+
+  /**
+   * Record that a user sent a chat message. Someone already talking doesn't need a
+   * greeting, so this sets the same mark a greeting would; a confirmed leave still
+   * clears it, so a genuine rejoin is greeted as usual.
+   */
+  noteChatActivity(userKey) {
+    if (userKey) this._greetedUsers.set(userKey, Date.now());
   }
 
   handlePresenceJoin(userKey, username) {

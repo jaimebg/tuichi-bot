@@ -316,6 +316,7 @@ export class Bot {
   // --- Message handling ---
   _handleMessage({ userKey, displayName, message, tags, msg }) {
     this.chatterPresence?.markActive(userKey, displayName);
+    this.greeter.noteChatActivity(userKey);
 
     const timestamp = Date.now();
     this.recentChat.addMessage(userKey, displayName, message, timestamp);

@@ -7,7 +7,7 @@ A Node.js Twitch chat bot with AI-powered conversation, interactive chat games, 
 ## What it does
 
 ### Core functionality
-- **Smart greetings & goodbyes**: welcomes viewers when they appear in chat and bids farewell when they leave, using the Helix Get Chatters API (reliable presence, unlike Twitch's batched IRC JOIN/PART). Requires the broadcaster token with `moderator:read:chatters` (see Credentials below).
+- **Smart greetings & goodbyes**: welcomes viewers when they appear in chat and bids farewell when they leave, using the Helix Get Chatters API (reliable presence, unlike Twitch's batched IRC JOIN/PART). Viewers who already spoke in chat before presence picked them up are not greeted. Requires the broadcaster token with `moderator:read:chatters` (see Credentials below).
 - **AI chat responses**: responds to `@mentions` and replies using Groq AI, with per-user memory and conversation context.
 - **Interactive adventures** (`!aventura [tema]`): AI-narrated, story-driven adventures voted on by chat, up to 4 rounds.
 - **Interactive polls** (`!poll`): real-time chat polls; viewers vote with numbered options.
