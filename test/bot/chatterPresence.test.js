@@ -161,4 +161,58 @@ describe('ChatterPresence', () => {
     assert.deepEqual(joins, []);
     assert.deepEqual(presence.getPresentList().sort(), ['alice', 'bob', 'carol']);
   });
+
+  it('counts recent chatters as present before Get Chatters lists them', async () => {
+    const { presence, state } = makePresence();
+    state.chatters = [chatter('alice')];
+    await presence.poll(); // seed
+
+    presence.markActive('bob', 'Bob'); // spoke, but the API hasn't caught up yet
+    assert.deepEqual(presence.getPresentList().sort(), ['alice', 'bob']);
+    assert.equal(presence.getPresentCount(), 2);
+  });
+
+  it('does not double-count a recent chatter the API already lists', async () => {
+    const { presence, state } = makePresence();
+    state.chatters = [chatter('alice')];
+    await presence.poll(); // seed
+
+    presence.markActive('alice', 'Alice');
+    assert.deepEqual(presence.getPresentList(), ['alice']);
+    assert.equal(presence.getPresentCount(), 1);
+  });
+
+  it('drops a chatter from the present list once the activity hold expires', async () => {
+    const { presence, state } = makePresence({ recentMessageHoldMs: 20 });
+    state.chatters = [chatter('alice')];
+    await presence.poll(); // seed
+
+    presence.markActive('bob', 'Bob');
+    await new Promise(r => setTimeout(r, 40));
+    assert.deepEqual(presence.getPresentList(), ['alice']);
+  });
+
+  it('never lists the bot itself as present, even if it chats', async () => {
+    const { presence, state } = makePresence();
+    state.chatters = [];
+    await presence.poll(); // seed
+
+    presence.markActive('tuichibot', 'TuichiBot');
+    assert.deepEqual(presence.getPresentList(), []);
+  });
+
+  it('lists a recent chatter only once after the API catches up', async () => {
+    const { presence, state } = makePresence();
+    state.chatters = [];
+    await presence.poll(); // seed
+    const { joins } = collect(presence);
+
+    presence.markActive('bob', 'Bob');
+    state.chatters = [chatter('bob')];
+    await presence.poll();
+    // The join itself is still emitted (Greeter suppresses the greeting via
+    // noteChatActivity); presence just must not list bob twice.
+    assert.deepEqual(joins, ['bob']);
+    assert.deepEqual(presence.getPresentList(), ['bob']);
+  });
 });

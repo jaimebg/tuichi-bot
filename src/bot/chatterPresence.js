@@ -46,8 +46,22 @@ export class ChatterPresence extends EventEmitter {
     if (this.present.has(userKey) && displayName) this.present.set(userKey, displayName);
   }
 
-  getPresentList() { return [...this.present.keys()]; }
-  getPresentCount() { return this.present.size; }
+  /**
+   * Who is in chat: the Get Chatters snapshot plus anyone who chatted within
+   * recentMessageHoldMs. Get Chatters lags and is polled, so a viewer who walks in
+   * and types right away isn't in the snapshot yet — but they're clearly here (and
+   * e.g. must be eligible for !survive). Recent chatters are NOT added to `present`
+   * itself, so they don't affect join/leave detection.
+   */
+  getPresentList() {
+    const keys = new Set(this.present.keys());
+    const cutoff = Date.now() - this.recentMessageHoldMs;
+    for (const [key, ts] of this._lastMessageAt) {
+      if (ts >= cutoff && key !== this.botUsername) keys.add(key);
+    }
+    return [...keys];
+  }
+  getPresentCount() { return this.getPresentList().length; }
 
   /** Forget current presence so the next poll re-seeds without emitting joins (use on chat reconnect). */
   reset() {
